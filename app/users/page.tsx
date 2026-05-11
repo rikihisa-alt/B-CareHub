@@ -1,20 +1,23 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { users, totalOf, jpy, type User } from "@/lib/data";
+import { totalOf, jpy, emptyUserDraft, emptyBilling, type User } from "@/lib/data";
+import { useUsers, logActivity, genId } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
-import {
-  StatusBadge, Pill, FilterChip, Field, Input, Select, Th, ModalFooter,
-} from "@/components/ui/primitives";
+import { StatusBadge, Pill, FilterChip, Field, Input, Select, Th, ModalFooter } from "@/components/ui/primitives";
 
 type Filter = "all" | "active" | "hospital" | "away" | "left";
 
+const careLevels = ["自立", "要支援1", "要支援2", "要介護1", "要介護2", "要介護3", "要介護4", "要介護5"];
+
 export default function UsersPage() {
+  const [users, setUsers] = useUsers();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [newOpen, setNewOpen] = useState(false);
+  const [draft, setDraft] = useState<Omit<User, "id">>(emptyUserDraft());
 
   const list = useMemo(() => users.filter((u) => {
     if (filter === "active" && u.status !== "入居中") return false;
@@ -23,7 +26,7 @@ export default function UsersPage() {
     if (filter === "left" && u.status !== "退去済") return false;
     if (q && !`${u.name}${u.kana}${u.room}`.includes(q)) return false;
     return true;
-  }), [filter, q]);
+  }), [users, filter, q]);
 
   const counts = {
     active: users.filter((u) => u.status === "入居中").length,
@@ -32,14 +35,25 @@ export default function UsersPage() {
     homeVisit: users.filter((u) => u.status === "一時帰宅").length,
   };
 
-  function handleCsv() {
-    downloadCsv(
-      `利用者一覧_${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        ["部屋", "氏名", "フリガナ", "ステータス", "介護度", "今月請求予定"],
-        ...list.map((u) => [u.room, u.name, u.kana, u.status, u.careLevel, totalOf(u)]),
-      ],
-    );
+  function exportCsv() {
+    downloadCsv(`利用者一覧_${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["部屋", "氏名", "フリガナ", "ステータス", "介護度", "今月請求予定"],
+      ...list.map((u) => [u.room, u.name, u.kana, u.status, u.careLevel, totalOf(u)]),
+    ]);
+  }
+
+  function saveNew() {
+    if (!draft.name.trim() || !draft.kana.trim()) {
+      toast("氏名・フリガナを入力してください", "warn");
+      return;
+    }
+    const id = genId("U");
+    const user: User = { ...draft, id, monthlyBilling: emptyBilling() };
+    setUsers((cur) => [...cur, user]);
+    logActivity(`利用者「${draft.name}」を登録`);
+    toast("利用者を登録しました", "ok");
+    setNewOpen(false);
+    setDraft(emptyUserDraft());
   }
 
   return (
@@ -52,17 +66,17 @@ export default function UsersPage() {
           </p>
         </div>
         <div className="flex gap-2 no-print">
-          <button onClick={handleCsv} className="btn">CSV出力</button>
+          <button onClick={exportCsv} className="btn" disabled={users.length === 0}>CSV出力</button>
           <button onClick={doPrint} className="btn">印刷</button>
-          <button onClick={() => setNewOpen(true)} className="btn btn-primary">＋ 新規利用者</button>
+          <button onClick={() => { setDraft(emptyUserDraft()); setNewOpen(true); }} className="btn btn-primary">＋ 新規利用者</button>
         </div>
       </header>
 
       <div className="card p-3 flex flex-wrap gap-2 no-print">
         <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>全件 ({users.length})</FilterChip>
-        <FilterChip active={filter === "active"} onClick={() => setFilter("active")}>入居中</FilterChip>
-        <FilterChip active={filter === "hospital"} onClick={() => setFilter("hospital")}>入院中</FilterChip>
-        <FilterChip active={filter === "away"} onClick={() => setFilter("away")}>外泊・一時帰宅</FilterChip>
+        <FilterChip active={filter === "active"} onClick={() => setFilter("active")}>入居中 ({counts.active})</FilterChip>
+        <FilterChip active={filter === "hospital"} onClick={() => setFilter("hospital")}>入院中 ({counts.hospital})</FilterChip>
+        <FilterChip active={filter === "away"} onClick={() => setFilter("away")}>外泊・一時帰宅 ({counts.overnight + counts.homeVisit})</FilterChip>
         <FilterChip active={filter === "left"} onClick={() => setFilter("left")}>退去済</FilterChip>
         <input
           type="search"
@@ -90,7 +104,18 @@ export default function UsersPage() {
           </thead>
           <tbody>
             {list.length === 0 && (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-[12px] text-ink-500">該当する利用者がありません</td></tr>
+              <tr>
+                <td colSpan={9} className="px-3 py-12 text-center">
+                  <div className="text-[13px] text-ink-500 mb-3">
+                    {users.length === 0 ? "利用者がまだ登録されていません。" : "該当する利用者がありません。"}
+                  </div>
+                  {users.length === 0 && (
+                    <button onClick={() => { setDraft(emptyUserDraft()); setNewOpen(true); }} className="btn btn-primary">
+                      ＋ 最初の利用者を登録する
+                    </button>
+                  )}
+                </td>
+              </tr>
             )}
             {list.map((u) => (
               <tr key={u.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
@@ -119,24 +144,40 @@ export default function UsersPage() {
         onClose={() => setNewOpen(false)}
         title="新規利用者の登録"
         size="lg"
-        footer={<ModalFooter onCancel={() => setNewOpen(false)} onConfirm={() => { toast("新規利用者を登録しました", "ok"); setNewOpen(false); }} confirmLabel="登録" />}
+        footer={<ModalFooter onCancel={() => setNewOpen(false)} onConfirm={saveNew} confirmLabel="登録" />}
       >
         <div className="grid grid-cols-2 gap-3">
-          <Field label="姓"><Input /></Field>
-          <Field label="名"><Input /></Field>
-          <Field label="セイ"><Input /></Field>
-          <Field label="メイ"><Input /></Field>
-          <Field label="生年月日"><Input type="date" className="num" /></Field>
-          <Field label="性別"><Select><option>女</option><option>男</option><option>その他</option></Select></Field>
-          <Field label="部屋"><Input placeholder="例：107" className="num" /></Field>
-          <Field label="入居日"><Input type="date" className="num" /></Field>
-          <Field label="介護度">
-            <Select>
-              <option>自立</option><option>要支援1</option><option>要支援2</option>
-              <option>要介護1</option><option>要介護2</option><option>要介護3</option><option>要介護4</option><option>要介護5</option>
+          <Field label="氏名（必須）"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
+          <Field label="フリガナ（必須）"><Input value={draft.kana} onChange={(e) => setDraft({ ...draft, kana: e.target.value })} /></Field>
+          <Field label="生年月日"><Input type="date" value={draft.birthday} onChange={(e) => {
+            const b = e.target.value;
+            const age = b ? new Date().getFullYear() - new Date(b).getFullYear() : 0;
+            setDraft({ ...draft, birthday: b, age });
+          }} className="num" /></Field>
+          <Field label="性別">
+            <Select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as User["gender"] })}>
+              <option>女</option><option>男</option><option>その他</option>
             </Select>
           </Field>
-          <Field label="キーパーソン"><Input placeholder="氏名（続柄）" /></Field>
+          <Field label="部屋"><Input value={draft.room} onChange={(e) => setDraft({ ...draft, room: e.target.value })} placeholder="例：101" className="num" /></Field>
+          <Field label="入居日"><Input type="date" value={draft.moveInDate} onChange={(e) => setDraft({ ...draft, moveInDate: e.target.value })} className="num" /></Field>
+          <Field label="介護度">
+            <Select value={draft.careLevel} onChange={(e) => setDraft({ ...draft, careLevel: e.target.value })}>
+              {careLevels.map((c) => <option key={c}>{c}</option>)}
+            </Select>
+          </Field>
+          <Field label="電話">
+            <Input value={draft.keyPerson.phone} onChange={(e) => setDraft({ ...draft, keyPerson: { ...draft.keyPerson, phone: e.target.value } })} placeholder="本人連絡先（任意）" />
+          </Field>
+          <Field label="キーパーソン 氏名">
+            <Input value={draft.keyPerson.name} onChange={(e) => setDraft({ ...draft, keyPerson: { ...draft.keyPerson, name: e.target.value } })} />
+          </Field>
+          <Field label="キーパーソン 続柄">
+            <Input value={draft.keyPerson.relation} onChange={(e) => setDraft({ ...draft, keyPerson: { ...draft.keyPerson, relation: e.target.value } })} placeholder="長男・次女など" />
+          </Field>
+        </div>
+        <div className="mt-3 text-[11px] text-ink-500">
+          食事設定・アレルギー・固定費等は登録後、詳細画面から編集できます。
         </div>
       </Modal>
     </div>
@@ -144,6 +185,8 @@ export default function UsersPage() {
 }
 
 function MealIcons({ u }: { u: User }) {
+  const hasAny = u.meal.breakfastBread || u.meal.breakfastJuice || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし";
+  if (!hasAny) return <span className="text-ink-300 text-[11px]">未設定</span>;
   return (
     <div className="flex justify-center gap-2 text-[11px] text-ink-700">
       <span>朝 {u.meal.breakfastBread ? "パン" : "—"}{u.meal.breakfastJuice ? "・🥤" : ""}</span>

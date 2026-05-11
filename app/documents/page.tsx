@@ -1,45 +1,95 @@
 "use client";
 import { useMemo, useState } from "react";
+import { type DocItem, type Task } from "@/lib/data";
+import { useDocuments, useTasks, useUsers, logActivity, genId, todayIso } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { Pill, PriorityPill, FilterChip, Field, Input, Select, ModalFooter } from "@/components/ui/primitives";
 
-type Doc = { id: string; user: string; doc: string; status: string; expires: string; flag: "ok" | "warn" };
-type Task = { id: string; title: string; user: string; assignee: string; due: string; priority: "高" | "中" | "低"; status: string };
+type DocDraft = Omit<DocItem, "id">;
+type TaskDraft = Omit<Task, "id">;
 
-const INITIAL_DOCS: Doc[] = [
-  { id: "D1", user: "佐藤 ヨシ子", doc: "介護保険証", status: "回収済", expires: "2027-03-31", flag: "ok" },
-  { id: "D2", user: "鈴木 タケ", doc: "介護保険証", status: "期限間近", expires: "2026-06-15", flag: "warn" },
-  { id: "D3", user: "鈴木 タケ", doc: "負担割合証", status: "未回収", expires: "2026-07-31", flag: "warn" },
-  { id: "D4", user: "高橋 正一", doc: "重要事項説明書", status: "回収済", expires: "—", flag: "ok" },
-  { id: "D5", user: "中村 義雄", doc: "障害福祉サービス受給者証", status: "未回収", expires: "2026-09-30", flag: "warn" },
-  { id: "D6", user: "山本 美子", doc: "訪問看護指示書", status: "期限間近", expires: "2026-05-31", flag: "warn" },
-];
-
-const INITIAL_TASKS: Task[] = [
-  { id: "T1", title: "ケアマネ面談調整", user: "佐藤 ヨシ子", assignee: "田中", due: "2026-05-15", priority: "中", status: "未着手" },
-  { id: "T2", title: "病院連絡（入院状況確認）", user: "鈴木 タケ", assignee: "田中", due: "2026-05-12", priority: "高", status: "進行中" },
-  { id: "T3", title: "受給者証コピー回収", user: "中村 義雄", assignee: "鈴木", due: "2026-05-20", priority: "中", status: "未着手" },
-  { id: "T4", title: "退去精算準備", user: "—", assignee: "田中", due: "2026-05-25", priority: "中", status: "未着手" },
-  { id: "T5", title: "5月分 請求書作成", user: "—", assignee: "田中", due: "2026-05-31", priority: "高", status: "未着手" },
-];
+function emptyDoc(): DocDraft {
+  return { userId: undefined, userName: "", doc: "", status: "未回収", expires: "" };
+}
+function emptyTask(): TaskDraft {
+  return { title: "", category: "書類", userId: undefined, userName: undefined, assignee: "田中 太郎", due: todayIso(), priority: "中", status: "未対応" };
+}
 
 export default function DocsTasksPage() {
-  const [docs, setDocs] = useState(INITIAL_DOCS);
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [docs, setDocs] = useDocuments();
+  const [tasks, setTasks] = useTasks();
+  const [users] = useUsers();
+
   const [docFilter, setDocFilter] = useState<"all" | "warn">("all");
   const [taskFilter, setTaskFilter] = useState<"all" | "open" | "done">("open");
-  const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
+  const [editingDoc, setEditingDoc] = useState<DocItem | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [newDocOpen, setNewDocOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [docDraft, setDocDraft] = useState<DocDraft>(emptyDoc());
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTask());
 
-  const docList = useMemo(() => docs.filter((d) => docFilter === "all" || d.flag === "warn"), [docs, docFilter]);
+  const isWarn = (d: DocItem) => d.status === "未回収" || d.status === "期限間近" || d.status === "期限切れ";
+  const warnCount = docs.filter(isWarn).length;
+
+  const docList = useMemo(() => docs.filter((d) => docFilter === "all" || isWarn(d)), [docs, docFilter]);
   const taskList = useMemo(() => tasks.filter((t) =>
     taskFilter === "all" ? true : taskFilter === "open" ? t.status !== "完了" : t.status === "完了"
   ), [tasks, taskFilter]);
 
+  function addDoc() {
+    if (!docDraft.userName || !docDraft.doc.trim()) {
+      toast("利用者と書類名を入力してください", "warn");
+      return;
+    }
+    setDocs((cur) => [...cur, { id: genId("D"), ...docDraft }]);
+    logActivity(`書類「${docDraft.doc}」を ${docDraft.userName} 様 に登録`);
+    toast("書類を登録しました", "ok");
+    setNewDocOpen(false);
+    setDocDraft(emptyDoc());
+  }
+
+  function saveDoc() {
+    if (!editingDoc) return;
+    setDocs((cur) => cur.map((d) => d.id === editingDoc.id ? editingDoc : d));
+    logActivity(`書類「${editingDoc.doc}」を更新`);
+    toast("書類を更新しました", "ok");
+    setEditingDoc(null);
+  }
+
+  function deleteDoc(id: string) {
+    setDocs((cur) => cur.filter((d) => d.id !== id));
+    logActivity("書類を削除");
+    toast("削除しました", "ok");
+    setEditingDoc(null);
+  }
+
+  function addTask() {
+    if (!taskDraft.title.trim()) {
+      toast("タスク名を入力してください", "warn");
+      return;
+    }
+    const user = users.find((u) => u.id === taskDraft.userId);
+    setTasks((cur) => [{ id: genId("T"), ...taskDraft, userName: user?.name }, ...cur]);
+    logActivity(`タスク「${taskDraft.title}」を追加`);
+    toast("タスクを追加しました", "ok");
+    setNewTaskOpen(false);
+    setTaskDraft(emptyTask());
+  }
+
+  function saveTask() {
+    if (!editingTask) return;
+    setTasks((cur) => cur.map((t) => t.id === editingTask.id ? editingTask : t));
+    logActivity(`タスク「${editingTask.title}」を更新`);
+    toast("タスクを保存しました", "ok");
+    setEditingTask(null);
+  }
+
   function completeTask(id: string) {
-    setTasks((ts) => ts.map((t) => t.id === id ? { ...t, status: "完了" } : t));
-    toast("タスクを完了にしました", "ok");
+    setTasks((cur) => cur.map((t) => t.id === id ? { ...t, status: "完了" as const } : t));
+    logActivity("タスクを完了");
+    toast("完了にしました", "ok");
   }
 
   return (
@@ -49,90 +99,134 @@ export default function DocsTasksPage() {
         <p className="text-[12px] text-ink-500 mt-0.5">期限切れ・未回収・未完了を一元管理</p>
       </header>
 
+      {/* 書類 */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-[14px] font-semibold text-ink-800">書類管理</h2>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
             <FilterChip active={docFilter === "all"} onClick={() => setDocFilter("all")}>すべて ({docs.length})</FilterChip>
-            <FilterChip active={docFilter === "warn"} onClick={() => setDocFilter("warn")}>要対応 ({docs.filter((d) => d.flag === "warn").length})</FilterChip>
+            <FilterChip active={docFilter === "warn"} onClick={() => setDocFilter("warn")}>要対応 ({warnCount})</FilterChip>
+            <button onClick={() => { setDocDraft(emptyDoc()); setNewDocOpen(true); }} className="btn btn-sm btn-primary ml-2">＋ 書類追加</button>
           </div>
         </div>
         <div className="card overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
-              <tr className="text-left">
-                <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">書類名</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">回収状況</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">有効期限</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">状態</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docList.map((d) => (
-                <tr key={d.id} className={"border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60 " + (d.flag === "warn" ? "bg-warn-50/30" : "")}>
-                  <td className="px-3 py-2.5 text-ink-900">{d.user}</td>
-                  <td className="px-3 py-2.5 text-ink-900">{d.doc}</td>
-                  <td className="px-3 py-2.5 text-[12px]">{d.status}</td>
-                  <td className="px-3 py-2.5 num text-[12px]">{d.expires}</td>
-                  <td className="px-3 py-2.5 text-center">
-                    <Pill tone={d.flag === "warn" ? "warn" : "ok"}>{d.flag === "warn" ? "要対応" : "OK"}</Pill>
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <button onClick={() => setEditingDoc(d)} className="btn btn-sm">編集</button>
-                  </td>
+          {docList.length === 0 ? (
+            <div className="px-3 py-10 text-center text-[13px] text-ink-500">
+              {docs.length === 0 ? "書類はまだ登録されていません" : "該当する書類はありません"}
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">書類名</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">回収状況</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">有効期限</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">状態</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {docList.map((d) => (
+                  <tr key={d.id} className={"border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60 " + (isWarn(d) ? "bg-warn-50/30" : "")}>
+                    <td className="px-3 py-2.5 text-ink-900">{d.userName}</td>
+                    <td className="px-3 py-2.5 text-ink-900">{d.doc}</td>
+                    <td className="px-3 py-2.5 text-[12px]">{d.status}</td>
+                    <td className="px-3 py-2.5 num text-[12px]">{d.expires || "—"}</td>
+                    <td className="px-3 py-2.5 text-center">
+                      <Pill tone={isWarn(d) ? "warn" : "ok"}>{isWarn(d) ? "要対応" : "OK"}</Pill>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <button onClick={() => setEditingDoc(d)} className="btn btn-sm">編集</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
 
+      {/* タスク */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-[14px] font-semibold text-ink-800">タスク</h2>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
             <FilterChip active={taskFilter === "open"} onClick={() => setTaskFilter("open")}>未完了 ({tasks.filter((t) => t.status !== "完了").length})</FilterChip>
             <FilterChip active={taskFilter === "done"} onClick={() => setTaskFilter("done")}>完了 ({tasks.filter((t) => t.status === "完了").length})</FilterChip>
             <FilterChip active={taskFilter === "all"} onClick={() => setTaskFilter("all")}>すべて ({tasks.length})</FilterChip>
+            <button onClick={() => { setTaskDraft(emptyTask()); setNewTaskOpen(true); }} className="btn btn-sm btn-primary ml-2">＋ タスク追加</button>
           </div>
         </div>
         <div className="card overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
-              <tr className="text-left">
-                <th className="px-3 py-2.5 text-[11px] font-semibold">タスク</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">担当</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">期限</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">優先度</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">ステータス</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-28 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {taskList.map((t) => (
-                <tr key={t.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
-                  <td className="px-3 py-2.5 font-medium text-ink-900">{t.title}</td>
-                  <td className="px-3 py-2.5 text-ink-700">{t.user}</td>
-                  <td className="px-3 py-2.5 text-ink-700">{t.assignee}</td>
-                  <td className="px-3 py-2.5 num">{t.due}</td>
-                  <td className="px-3 py-2.5"><PriorityPill p={t.priority} /></td>
-                  <td className="px-3 py-2.5 text-[12px]">{t.status}</td>
-                  <td className="px-3 py-2.5 text-center flex gap-1 justify-center">
-                    <button onClick={() => setEditingTask(t)} className="btn btn-sm">編集</button>
-                    {t.status !== "完了" && (
-                      <button onClick={() => completeTask(t.id)} className="btn btn-sm btn-primary">完了</button>
-                    )}
-                  </td>
+          {taskList.length === 0 ? (
+            <div className="px-3 py-10 text-center text-[13px] text-ink-500">
+              {tasks.length === 0 ? "タスクはまだ登録されていません" : "該当するタスクはありません"}
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">タスク</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">担当</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">期限</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">優先度</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">ステータス</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-28 text-center">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {taskList.map((t) => (
+                  <tr key={t.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                    <td className="px-3 py-2.5 font-medium text-ink-900">{t.title}</td>
+                    <td className="px-3 py-2.5 text-ink-700">{t.userName ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-ink-700">{t.assignee}</td>
+                    <td className="px-3 py-2.5 num">{t.due}</td>
+                    <td className="px-3 py-2.5"><PriorityPill p={t.priority} /></td>
+                    <td className="px-3 py-2.5 text-[12px]">{t.status}</td>
+                    <td className="px-3 py-2.5 text-center flex gap-1 justify-center">
+                      <button onClick={() => setEditingTask(t)} className="btn btn-sm">編集</button>
+                      {t.status !== "完了" && <button onClick={() => completeTask(t.id)} className="btn btn-sm btn-primary">完了</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
 
+      {/* 書類追加 */}
+      <Modal
+        open={newDocOpen}
+        onClose={() => setNewDocOpen(false)}
+        title="書類を追加"
+        footer={<ModalFooter onCancel={() => setNewDocOpen(false)} onConfirm={addDoc} confirmLabel="登録" />}
+      >
+        <div className="space-y-3">
+          <Field label="利用者">
+            <Select value={docDraft.userName} onChange={(e) => {
+              const u = users.find((x) => x.name === e.target.value);
+              setDocDraft({ ...docDraft, userName: e.target.value, userId: u?.id });
+            }}>
+              <option value="">— 選択 —</option>
+              {users.map((u) => <option key={u.id}>{u.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="書類名"><Input value={docDraft.doc} onChange={(e) => setDocDraft({ ...docDraft, doc: e.target.value })} placeholder="例：介護保険証" /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="回収状況">
+              <Select value={docDraft.status} onChange={(e) => setDocDraft({ ...docDraft, status: e.target.value as DocItem["status"] })}>
+                <option>未回収</option><option>期限間近</option><option>回収済</option><option>期限切れ</option>
+              </Select>
+            </Field>
+            <Field label="有効期限"><Input type="date" value={docDraft.expires} onChange={(e) => setDocDraft({ ...docDraft, expires: e.target.value })} className="num" /></Field>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 書類編集 */}
       <Modal
         open={editingDoc !== null}
         onClose={() => setEditingDoc(null)}
@@ -140,32 +234,59 @@ export default function DocsTasksPage() {
         footer={
           <ModalFooter
             onCancel={() => setEditingDoc(null)}
-            onConfirm={() => {
-              if (!editingDoc) return;
-              setDocs((ds) => ds.map((d) => d.id === editingDoc.id ? { ...d, status: "回収済", flag: "ok" } : d));
-              toast("書類を更新しました", "ok");
-              setEditingDoc(null);
-            }}
-            confirmLabel="回収済にする"
+            onConfirm={saveDoc}
+            extra={editingDoc && <button onClick={() => deleteDoc(editingDoc.id)} className="btn btn-sm text-err-700">削除</button>}
           />
         }
       >
         {editingDoc && (
           <div className="space-y-3">
-            <Field label="利用者">{editingDoc.user}</Field>
-            <Field label="書類名">{editingDoc.doc}</Field>
-            <Field label="回収状況">
-              <Select defaultValue={editingDoc.status}>
-                <option>未回収</option><option>期限間近</option><option>回収済</option><option>期限切れ</option>
-              </Select>
-            </Field>
-            <Field label="有効期限">
-              <Input type="date" defaultValue={editingDoc.expires !== "—" ? editingDoc.expires : ""} className="num" />
-            </Field>
+            <Field label="利用者">{editingDoc.userName}</Field>
+            <Field label="書類名"><Input value={editingDoc.doc} onChange={(e) => setEditingDoc({ ...editingDoc, doc: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="回収状況">
+                <Select value={editingDoc.status} onChange={(e) => setEditingDoc({ ...editingDoc, status: e.target.value as DocItem["status"] })}>
+                  <option>未回収</option><option>期限間近</option><option>回収済</option><option>期限切れ</option>
+                </Select>
+              </Field>
+              <Field label="有効期限"><Input type="date" value={editingDoc.expires} onChange={(e) => setEditingDoc({ ...editingDoc, expires: e.target.value })} className="num" /></Field>
+            </div>
           </div>
         )}
       </Modal>
 
+      {/* タスク追加 */}
+      <Modal
+        open={newTaskOpen}
+        onClose={() => setNewTaskOpen(false)}
+        title="タスク追加"
+        footer={<ModalFooter onCancel={() => setNewTaskOpen(false)} onConfirm={addTask} confirmLabel="登録" />}
+      >
+        <div className="space-y-3">
+          <Field label="タスク名"><Input value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="対象利用者">
+              <Select value={taskDraft.userId ?? ""} onChange={(e) => setTaskDraft({ ...taskDraft, userId: e.target.value || undefined })}>
+                <option value="">— なし —</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="区分">
+              <Select value={taskDraft.category} onChange={(e) => setTaskDraft({ ...taskDraft, category: e.target.value as Task["category"] })}>
+                <option>請求</option><option>ケア</option><option>書類</option><option>連絡</option><option>棚卸</option><option>その他</option>
+              </Select>
+            </Field>
+            <Field label="期限"><Input type="date" value={taskDraft.due} onChange={(e) => setTaskDraft({ ...taskDraft, due: e.target.value })} className="num" /></Field>
+            <Field label="優先度">
+              <Select value={taskDraft.priority} onChange={(e) => setTaskDraft({ ...taskDraft, priority: e.target.value as Task["priority"] })}>
+                <option>高</option><option>中</option><option>低</option>
+              </Select>
+            </Field>
+          </div>
+        </div>
+      </Modal>
+
+      {/* タスク編集 */}
       <Modal
         open={editingTask !== null}
         onClose={() => setEditingTask(null)}
@@ -173,16 +294,27 @@ export default function DocsTasksPage() {
         footer={
           <ModalFooter
             onCancel={() => setEditingTask(null)}
-            onConfirm={() => { toast("タスクを保存しました", "ok"); setEditingTask(null); }}
+            onConfirm={saveTask}
+            extra={editingTask && <button onClick={() => { setTasks((cur) => cur.filter((t) => t.id !== editingTask.id)); toast("削除しました", "ok"); setEditingTask(null); }} className="btn btn-sm text-err-700">削除</button>}
           />
         }
       >
         {editingTask && (
           <div className="space-y-3">
-            <Field label="タスク名"><Input defaultValue={editingTask.title} /></Field>
-            <Field label="期限"><Input type="date" defaultValue={editingTask.due} className="num" /></Field>
-            <Field label="優先度"><Select defaultValue={editingTask.priority}><option>高</option><option>中</option><option>低</option></Select></Field>
-            <Field label="ステータス"><Select defaultValue={editingTask.status}><option>未着手</option><option>進行中</option><option>完了</option><option>見送り</option></Select></Field>
+            <Field label="タスク名"><Input value={editingTask.title} onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="期限"><Input type="date" value={editingTask.due} onChange={(e) => setEditingTask({ ...editingTask, due: e.target.value })} className="num" /></Field>
+              <Field label="優先度">
+                <Select value={editingTask.priority} onChange={(e) => setEditingTask({ ...editingTask, priority: e.target.value as Task["priority"] })}>
+                  <option>高</option><option>中</option><option>低</option>
+                </Select>
+              </Field>
+              <Field label="ステータス">
+                <Select value={editingTask.status} onChange={(e) => setEditingTask({ ...editingTask, status: e.target.value as Task["status"] })}>
+                  <option>未対応</option><option>対応中</option><option>完了</option><option>見送り</option>
+                </Select>
+              </Field>
+            </div>
           </div>
         )}
       </Modal>

@@ -1,16 +1,18 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { type StaffMember } from "@/lib/data";
+import { useStaff, logActivity, genId } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
 import { Pill, FilterChip, Field, Input, Select, ModalFooter } from "@/components/ui/primitives";
 
-const ROLES = [
-  { id: "admin", name: "管理者", desc: "全機能・確定解除・マスタ・権限管理", count: 1 },
-  { id: "office", name: "事務担当", desc: "利用者・食事・請求・日用品・書類・タスク", count: 2 },
-  { id: "field", name: "現場スタッフ", desc: "食事閲覧・キャンセル登録・日用品使用記録・申し送り", count: 8 },
-  { id: "view", name: "閲覧専用", desc: "ダッシュボード・カレンダー・一部利用者情報のみ", count: 1 },
+const ROLES: { id: StaffMember["roleId"]; name: string; desc: string }[] = [
+  { id: "admin", name: "管理者", desc: "全機能・確定解除・マスタ・権限管理" },
+  { id: "office", name: "事務担当", desc: "利用者・食事・請求・日用品・書類・タスク" },
+  { id: "field", name: "現場スタッフ", desc: "食事閲覧・キャンセル登録・日用品使用記録・申し送り" },
+  { id: "view", name: "閲覧専用", desc: "ダッシュボード・カレンダー・一部利用者情報のみ" },
 ];
 
 const PERMISSIONS = [
@@ -19,27 +21,31 @@ const PERMISSIONS = [
   "日用品マスタ", "日用品使用登録", "書類管理", "タスク管理", "申し送り記載", "マスタ管理", "職員管理", "権限管理", "監査ログ閲覧",
 ];
 
-type Staff = { id: string; name: string; roleId: string; role: string; email: string; facility: string; active: boolean; lastLogin: string };
+type Draft = Omit<StaffMember, "id" | "role" | "lastLogin">;
 
-const INITIAL: Staff[] = [
-  { id: "S001", name: "山下 健", roleId: "admin", role: "管理者", email: "yamashita@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-11 07:50" },
-  { id: "S002", name: "田中 太郎", roleId: "office", role: "事務担当", email: "tanaka@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-12 08:42" },
-  { id: "S003", name: "鈴木 花子", roleId: "office", role: "事務担当", email: "suzuki@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-11 17:30" },
-  { id: "S004", name: "加藤 看護師", roleId: "field", role: "現場スタッフ（看護）", email: "kato@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-12 08:30" },
-  { id: "S005", name: "小川 介護士", roleId: "field", role: "現場スタッフ（介護）", email: "ogawa@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-12 07:15" },
-  { id: "S006", name: "佐々木 介護士", roleId: "field", role: "現場スタッフ（介護）", email: "sasaki@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-11 22:05" },
-  { id: "S007", name: "井上 介護士", roleId: "field", role: "現場スタッフ（介護）", email: "inoue@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-09 14:20" },
-  { id: "S008", name: "森 経営", roleId: "view", role: "閲覧専用", email: "mori@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "2026-05-08 11:10" },
-];
+function emptyDraft(): Draft {
+  return { name: "", roleId: "office", email: "", facility: "あすか苑（仮）", active: true };
+}
+
+function roleNameOf(id: StaffMember["roleId"]) {
+  return ROLES.find((r) => r.id === id)?.name ?? id;
+}
 
 export default function StaffPage() {
-  const [staff, setStaff] = useState(INITIAL);
+  const [staff, setStaff] = useStaff();
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
-  const [editing, setEditing] = useState<Staff | null>(null);
+  const [editing, setEditing] = useState<StaffMember | null>(null);
+  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft());
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addDraft, setAddDraft] = useState<Draft>(emptyDraft());
 
   const list = useMemo(() => staff.filter((s) => filter === "all" ? true : filter === "active" ? s.active : !s.active), [staff, filter]);
+  const roleCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    staff.forEach((s) => { m[s.roleId] = (m[s.roleId] ?? 0) + 1; });
+    return m;
+  }, [staff]);
 
   function exportCsv() {
     downloadCsv("職員一覧.csv", [
@@ -49,8 +55,50 @@ export default function StaffPage() {
   }
 
   function toggleActive(id: string) {
-    setStaff((arr) => arr.map((s) => s.id === id ? { ...s, active: !s.active } : s));
+    setStaff((cur) => cur.map((s) => s.id === id ? { ...s, active: !s.active } : s));
+    const s = staff.find((x) => x.id === id);
+    logActivity(`職員「${s?.name}」を${s?.active ? "無効化" : "有効化"}`);
     toast("職員の状態を変更しました", "ok");
+  }
+
+  function addStaff() {
+    if (!addDraft.name.trim() || !addDraft.email.trim()) {
+      toast("氏名・メールを入力してください", "warn");
+      return;
+    }
+    setStaff((cur) => [
+      ...cur,
+      { id: genId("S"), name: addDraft.name, roleId: addDraft.roleId, role: roleNameOf(addDraft.roleId), email: addDraft.email, facility: addDraft.facility, active: addDraft.active, lastLogin: "—" },
+    ]);
+    logActivity(`職員「${addDraft.name}」を追加`);
+    toast("職員を追加しました", "ok");
+    setAddOpen(false);
+    setAddDraft(emptyDraft());
+  }
+
+  function saveEdit() {
+    if (!editing) return;
+    if (!editDraft.name.trim() || !editDraft.email.trim()) {
+      toast("氏名・メールを入力してください", "warn");
+      return;
+    }
+    setStaff((cur) => cur.map((s) => s.id === editing.id
+      ? { ...s, name: editDraft.name, roleId: editDraft.roleId, role: roleNameOf(editDraft.roleId), email: editDraft.email, facility: editDraft.facility, active: editDraft.active }
+      : s
+    ));
+    logActivity(`職員「${editDraft.name}」を更新`);
+    toast("職員情報を保存しました", "ok");
+    setEditing(null);
+  }
+
+  function removeStaff(id: string) {
+    const s = staff.find((x) => x.id === id);
+    if (!s) return;
+    if (!window.confirm(`職員「${s.name}」を削除します。よろしいですか？`)) return;
+    setStaff((cur) => cur.filter((x) => x.id !== id));
+    logActivity(`職員「${s.name}」を削除`);
+    toast("職員を削除しました", "ok");
+    setEditing(null);
   }
 
   return (
@@ -61,8 +109,8 @@ export default function StaffPage() {
           <p className="text-[12px] text-ink-500 mt-0.5">職員 {staff.filter((s) => s.active).length} 名 有効 ／ {ROLES.length} ロール</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={exportCsv} className="btn">CSV エクスポート</button>
-          <button onClick={() => setAddOpen(true)} className="btn btn-primary">＋ 職員追加</button>
+          <button onClick={exportCsv} className="btn" disabled={staff.length === 0}>CSV エクスポート</button>
+          <button onClick={() => { setAddDraft(emptyDraft()); setAddOpen(true); }} className="btn btn-primary">＋ 職員追加</button>
         </div>
       </header>
 
@@ -83,7 +131,7 @@ export default function StaffPage() {
                 <tr key={r.id} className="border-b border-ink-100 last:border-b-0">
                   <td className="px-4 py-2.5 font-medium text-ink-900">{r.name}</td>
                   <td className="px-4 py-2.5 text-[12px] text-ink-600">{r.desc}</td>
-                  <td className="px-4 py-2.5 text-right num text-ink-700">{r.count} 名</td>
+                  <td className="px-4 py-2.5 text-right num text-ink-700">{roleCounts[r.id] ?? 0} 名</td>
                   <td className="px-4 py-2.5 text-center">
                     <button onClick={() => setEditingRole(r.name)} className="btn btn-sm">権限を編集</button>
                   </td>
@@ -105,39 +153,43 @@ export default function StaffPage() {
         </div>
 
         <div className="card overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
-              <tr className="text-left">
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-20">職員ID</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">氏名</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">ロール</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">メール</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">所属</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold">最終ログイン</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">状態</th>
-                <th className="px-3 py-2.5 text-[11px] font-semibold w-32 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((s) => (
-                <tr key={s.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
-                  <td className="px-3 py-2.5 num text-[12px] text-ink-500">{s.id}</td>
-                  <td className="px-3 py-2.5 font-medium text-ink-900">{s.name}</td>
-                  <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.role}</td>
-                  <td className="px-3 py-2.5 text-[12px] text-ink-600">{s.email}</td>
-                  <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.facility}</td>
-                  <td className="px-3 py-2.5 num text-[11px] text-ink-500">{s.lastLogin}</td>
-                  <td className="px-3 py-2.5 text-center">
-                    <Pill tone={s.active ? "ok" : "neutral"}>{s.active ? "有効" : "無効"}</Pill>
-                  </td>
-                  <td className="px-3 py-2.5 text-center flex gap-1 justify-center">
-                    <button onClick={() => setEditing(s)} className="btn btn-sm">編集</button>
-                    <button onClick={() => toggleActive(s.id)} className="btn btn-sm">{s.active ? "無効化" : "有効化"}</button>
-                  </td>
+          {list.length === 0 ? (
+            <div className="px-3 py-10 text-center text-[13px] text-ink-500">
+              {staff.length === 0 ? "職員が登録されていません" : "該当する職員がありません"}
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-20">職員ID</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">氏名</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">ロール</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">メール</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">所属</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold">最終ログイン</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-20 text-center">状態</th>
+                  <th className="px-3 py-2.5 text-[11px] font-semibold w-32 text-center">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.map((s) => (
+                  <tr key={s.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                    <td className="px-3 py-2.5 num text-[12px] text-ink-500">{s.id}</td>
+                    <td className="px-3 py-2.5 font-medium text-ink-900">{s.name}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.role}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-ink-600">{s.email}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.facility}</td>
+                    <td className="px-3 py-2.5 num text-[11px] text-ink-500">{s.lastLogin}</td>
+                    <td className="px-3 py-2.5 text-center"><Pill tone={s.active ? "ok" : "neutral"}>{s.active ? "有効" : "無効"}</Pill></td>
+                    <td className="px-3 py-2.5 text-center flex gap-1 justify-center">
+                      <button onClick={() => { setEditDraft({ name: s.name, roleId: s.roleId, email: s.email, facility: s.facility, active: s.active }); setEditing(s); }} className="btn btn-sm">編集</button>
+                      <button onClick={() => toggleActive(s.id)} className="btn btn-sm">{s.active ? "無効化" : "有効化"}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
 
@@ -147,56 +199,32 @@ export default function StaffPage() {
       </div>
 
       <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="職員を追加"
+        footer={<ModalFooter onCancel={() => setAddOpen(false)} onConfirm={addStaff} confirmLabel="追加" />}
+      >
+        <StaffForm draft={addDraft} setDraft={setAddDraft} />
+      </Modal>
+
+      <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
         title={`職員編集：${editing?.name ?? ""}`}
         footer={
           <ModalFooter
             onCancel={() => setEditing(null)}
-            onConfirm={() => { toast("職員情報を保存しました", "ok"); setEditing(null); }}
-            extra={<button className="btn btn-sm" onClick={() => toast("パスワードリセットメールを送信しました", "info")}>パスワードリセット</button>}
+            onConfirm={saveEdit}
+            extra={editing && (
+              <>
+                <button onClick={() => toast("パスワードリセットメールを送信しました（モック）", "info")} className="btn btn-sm">パスワードリセット</button>
+                <button onClick={() => removeStaff(editing.id)} className="btn btn-sm text-err-700">削除</button>
+              </>
+            )}
           />
         }
       >
-        {editing && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="氏名"><Input defaultValue={editing.name} /></Field>
-            <Field label="ロール">
-              <Select defaultValue={editing.roleId}>
-                {ROLES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="メール"><Input type="email" defaultValue={editing.email} /></Field>
-            <Field label="所属"><Input defaultValue={editing.facility} /></Field>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="職員を追加"
-        footer={
-          <ModalFooter
-            onCancel={() => setAddOpen(false)}
-            onConfirm={() => {
-              setStaff((arr) => [
-                ...arr,
-                { id: `S${String(arr.length + 1).padStart(3, "0")}`, name: "新規 職員", roleId: "view", role: "閲覧専用", email: "new@asuka.example", facility: "あすか苑（仮）", active: true, lastLogin: "—" },
-              ]);
-              toast("職員を追加しました。初回ログイン用のメールを送信しました。", "ok");
-              setAddOpen(false);
-            }}
-            confirmLabel="追加"
-          />
-        }
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="氏名"><Input /></Field>
-          <Field label="ロール"><Select>{ROLES.map((r) => <option key={r.id}>{r.name}</option>)}</Select></Field>
-          <Field label="メール"><Input type="email" /></Field>
-          <Field label="所属"><Input defaultValue="あすか苑（仮）" /></Field>
-        </div>
+        {editing && <StaffForm draft={editDraft} setDraft={setEditDraft} />}
       </Modal>
 
       <Modal
@@ -214,6 +242,26 @@ export default function StaffPage() {
           ))}
         </div>
       </Modal>
+    </div>
+  );
+}
+
+function StaffForm({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="氏名（必須）"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
+      <Field label="ロール">
+        <Select value={draft.roleId} onChange={(e) => setDraft({ ...draft, roleId: e.target.value as StaffMember["roleId"] })}>
+          {ROLES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </Select>
+      </Field>
+      <Field label="メール（必須）"><Input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></Field>
+      <Field label="所属"><Input value={draft.facility} onChange={(e) => setDraft({ ...draft, facility: e.target.value })} /></Field>
+      <Field label="状態">
+        <Select value={draft.active ? "1" : "0"} onChange={(e) => setDraft({ ...draft, active: e.target.value === "1" })}>
+          <option value="1">有効</option><option value="0">無効</option>
+        </Select>
+      </Field>
     </div>
   );
 }

@@ -1,128 +1,179 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { alerts as initialAlerts } from "@/lib/data";
-import { Modal } from "@/components/ui/modal";
+import { useMemo } from "react";
+import { type Alert } from "@/lib/data";
+import { useUsers, useGoods, useDocuments, useMealConfirmations, todayIso } from "@/lib/store";
+import { Severity, FilterChip, Th } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
-import { Severity, FilterChip, Field, Input, Th, ModalFooter } from "@/components/ui/primitives";
 
-type Status = "未対応" | "対応中" | "解決" | "抑制";
+/** 現在の業務データからアラートを自動算出 */
+function computeAlerts(
+  users: ReturnType<typeof useUsers>[0],
+  goods: ReturnType<typeof useGoods>[0],
+  documents: ReturnType<typeof useDocuments>[0],
+  confirmations: ReturnType<typeof useMealConfirmations>[0],
+): Alert[] {
+  const today = todayIso();
+  const alerts: Alert[] = [];
+
+  // 発注未確定（本日分）
+  const c = confirmations[today] ?? {};
+  if (users.length > 0 && !c.lunch) {
+    alerts.push({
+      id: "AL-meal-lunch",
+      type: "発注未確定",
+      severity: "高",
+      detectedAt: today,
+      message: `本日 ${today} 昼食 が未確定`,
+      impact: "対象者の配膳に影響、業者締切までに確定が必要",
+      actionLabel: "確定する",
+      actionHref: `/meals/${today}`,
+    });
+  }
+
+  // 在庫不足
+  goods.filter((g) => g.stock < g.min).forEach((g) => {
+    const critical = g.stock < g.min * 0.5;
+    alerts.push({
+      id: `AL-stock-${g.id}`,
+      type: "在庫不足",
+      severity: critical ? "高" : "中",
+      detectedAt: today,
+      message: `${g.name}：残 ${g.stock} / 最低 ${g.min}${critical ? "（切迫）" : ""}`,
+      impact: critical ? "3 日以内に枯渇見込み" : "1 週間以内に枯渇見込み",
+      actionLabel: "発注候補へ",
+      actionHref: "/goods",
+    });
+  });
+
+  // 書類期限
+  documents.forEach((d) => {
+    if (d.status === "期限切れ") {
+      alerts.push({
+        id: `AL-doc-${d.id}`,
+        type: "書類期限切れ",
+        severity: "高",
+        detectedAt: today,
+        message: `${d.userName} 様 ${d.doc} 期限切れ`,
+        targetUserId: d.userId,
+        impact: "更新手続きが必要",
+        actionLabel: "書類へ",
+        actionHref: "/documents",
+      });
+    } else if (d.status === "期限間近") {
+      alerts.push({
+        id: `AL-doc-${d.id}`,
+        type: "書類期限間近",
+        severity: "中",
+        detectedAt: today,
+        message: `${d.userName} 様 ${d.doc} 期限間近（${d.expires}）`,
+        targetUserId: d.userId,
+        impact: "更新手続きの準備が必要",
+        actionLabel: "書類へ",
+        actionHref: "/documents",
+      });
+    } else if (d.status === "未回収") {
+      alerts.push({
+        id: `AL-doc-${d.id}`,
+        type: "書類期限間近",
+        severity: "中",
+        detectedAt: today,
+        message: `${d.userName} 様 ${d.doc} 未回収`,
+        targetUserId: d.userId,
+        impact: "回収が必要",
+        actionLabel: "書類へ",
+        actionHref: "/documents",
+      });
+    }
+  });
+
+  // 請求漏れ疑い：食事が出ているのに食費 0
+  users.filter((u) => u.status === "入居中" && u.monthlyBilling.meal === 0 && (u.meal.breakfastBread || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし")).forEach((u) => {
+    alerts.push({
+      id: `AL-bill-${u.id}`,
+      type: "請求漏れ疑い",
+      severity: "高",
+      detectedAt: today,
+      message: `${u.name} 様 食費 ¥0（食事は提供されています）`,
+      targetUserId: u.id,
+      impact: "請求額が漏れている可能性",
+      actionLabel: "利用者へ",
+      actionHref: `/users/${u.id}`,
+    });
+  });
+
+  // 復帰漏れ：非入居中ステータスで statusTo が過ぎている
+  users.forEach((u) => {
+    if (u.status !== "入居中" && u.status !== "退去済" && u.statusTo && u.statusTo < today) {
+      alerts.push({
+        id: `AL-back-${u.id}`,
+        type: "復帰漏れ",
+        severity: "高",
+        detectedAt: today,
+        message: `${u.name} 様 ${u.status} 期間が終了済みなのに食事停止中`,
+        targetUserId: u.id,
+        impact: `期間：${u.statusFrom ?? "?"} 〜 ${u.statusTo}`,
+        actionLabel: "ステータスへ",
+        actionHref: `/users/${u.id}`,
+      });
+    }
+  });
+
+  return alerts;
+}
 
 export default function AlertsPage() {
-  const [items, setItems] = useState(initialAlerts.map((a) => ({ ...a, status: "未対応" as Status })));
-  const [filter, setFilter] = useState<Status>("未対応");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [suppressing, setSuppressing] = useState<typeof items[number] | null>(null);
+  const [users] = useUsers();
+  const [goods] = useGoods();
+  const [documents] = useDocuments();
+  const [confirmations] = useMealConfirmations();
 
-  const list = useMemo(() => items.filter((a) => {
-    if (a.status !== filter) return false;
-    if (typeFilter !== "all" && a.type !== typeFilter) return false;
-    return true;
-  }), [items, filter, typeFilter]);
-
-  function resolve(id: string) {
-    setItems((s) => s.map((x) => x.id === id ? { ...x, status: "解決" as Status } : x));
-    toast("アラートを解決にしました", "ok");
-  }
-
-  function suppress(id: string, reason: string) {
-    setItems((s) => s.map((x) => x.id === id ? { ...x, status: "抑制" as Status } : x));
-    toast(`アラートを 24 時間抑制しました（理由：${reason}）`, "warn");
-    setSuppressing(null);
-  }
-
-  const counts: Record<Status, number> = {
-    未対応: items.filter((a) => a.status === "未対応").length,
-    対応中: items.filter((a) => a.status === "対応中").length,
-    解決: items.filter((a) => a.status === "解決").length,
-    抑制: items.filter((a) => a.status === "抑制").length,
-  };
+  const alerts = useMemo(() => computeAlerts(users, goods, documents, confirmations), [users, goods, documents, confirmations]);
 
   return (
     <div className="space-y-4">
       <header>
         <h1 className="text-[22px] font-semibold text-ink-900">アラート</h1>
-        <p className="text-[12px] text-ink-500 mt-0.5">システムが自動検知した異常。</p>
+        <p className="text-[12px] text-ink-500 mt-0.5">システムが自動検知した異常。現在の登録データから自動算出されます。</p>
       </header>
 
       <div className="card p-3 flex flex-wrap gap-2">
-        <FilterChip active={filter === "未対応"} onClick={() => setFilter("未対応")}>未対応 ({counts["未対応"]})</FilterChip>
-        <FilterChip active={filter === "対応中"} onClick={() => setFilter("対応中")}>対応中 ({counts["対応中"]})</FilterChip>
-        <FilterChip active={filter === "解決"} onClick={() => setFilter("解決")}>解決済 ({counts["解決"]})</FilterChip>
-        <FilterChip active={filter === "抑制"} onClick={() => setFilter("抑制")}>抑制中 ({counts["抑制"]})</FilterChip>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="ml-auto px-2 py-1 border border-ink-200 rounded text-[12px]">
-          <option value="all">全種別</option>
-          <option value="発注未確定">発注未確定</option>
-          <option value="在庫不足">在庫不足</option>
-          <option value="書類期限間近">書類期限間近</option>
-          <option value="請求漏れ疑い">請求漏れ疑い</option>
-          <option value="復帰漏れ">復帰漏れ</option>
-        </select>
+        <FilterChip active>未対応 ({alerts.length})</FilterChip>
+        <span className="text-[11px] text-ink-500 ml-2 py-1.5">※ 解決操作は対応する画面で行ってください（食事確定／在庫補充／書類更新／請求修正／ステータス変更）</span>
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-[13px]">
-          <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
-            <tr>
-              <Th className="w-16">重要度</Th>
-              <Th className="w-24">種別</Th>
-              <Th className="w-36">発生日時</Th>
-              <Th>内容</Th>
-              <Th>影響</Th>
-              <Th className="w-44" align="center">操作</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-[12px] text-ink-500">該当するアラートはありません</td></tr>
-            )}
-            {list.map((a) => (
-              <tr key={a.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
-                <td className="px-3 py-2.5"><Severity s={a.severity} /></td>
-                <td className="px-3 py-2.5 text-[12px] text-ink-700">{a.type}</td>
-                <td className="px-3 py-2.5 num text-[12px] text-ink-700">{a.detectedAt}</td>
-                <td className="px-3 py-2.5 text-ink-900">{a.message}</td>
-                <td className="px-3 py-2.5 text-[12px] text-ink-600">{a.impact}</td>
-                <td className="px-3 py-2.5 flex gap-1 justify-center">
-                  <Link href={a.actionHref} className="btn btn-sm btn-arrow">{a.actionLabel}</Link>
-                  {a.status === "未対応" && (
-                    <>
-                      <button onClick={() => resolve(a.id)} className="btn btn-sm">解決</button>
-                      <button onClick={() => setSuppressing(a)} className="btn btn-sm">抑制</button>
-                    </>
-                  )}
-                </td>
+        {alerts.length === 0 ? (
+          <div className="px-3 py-12 text-center text-[13px] text-ink-500">アラートはありません ✓</div>
+        ) : (
+          <table className="w-full text-[13px]">
+            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
+              <tr>
+                <Th className="w-16">重要度</Th>
+                <Th className="w-24">種別</Th>
+                <Th className="w-32">発生日</Th>
+                <Th>内容</Th>
+                <Th>影響</Th>
+                <Th className="w-32" align="center">操作</Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Modal
-        open={suppressing !== null}
-        onClose={() => setSuppressing(null)}
-        title="アラートを抑制"
-        footer={
-          <ModalFooter
-            onCancel={() => setSuppressing(null)}
-            onConfirm={() => suppressing && suppress(suppressing.id, "業務上問題ないため")}
-            confirmLabel="24時間抑制"
-          />
-        }
-      >
-        {suppressing && (
-          <div className="space-y-3">
-            <p className="text-[13px]">以下のアラートを <b>24時間</b> 抑制します。</p>
-            <div className="bg-ink-50 rounded p-3 text-[12px]">
-              <div className="font-semibold">{suppressing.message}</div>
-              <div className="text-ink-500 mt-1">{suppressing.impact}</div>
-            </div>
-            <Field label="抑制理由（必須）">
-              <Input placeholder="例：別途対応済、業務上問題ない、誤検知" />
-            </Field>
-          </div>
+            </thead>
+            <tbody>
+              {alerts.map((a) => (
+                <tr key={a.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                  <td className="px-3 py-2.5"><Severity s={a.severity} /></td>
+                  <td className="px-3 py-2.5 text-[12px] text-ink-700">{a.type}</td>
+                  <td className="px-3 py-2.5 num text-[12px] text-ink-700">{a.detectedAt}</td>
+                  <td className="px-3 py-2.5 text-ink-900">{a.message}</td>
+                  <td className="px-3 py-2.5 text-[12px] text-ink-600">{a.impact}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <Link href={a.actionHref} className="btn btn-sm btn-arrow">{a.actionLabel}</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
-      </Modal>
+      </div>
     </div>
   );
 }

@@ -1,24 +1,40 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { handovers as initialHandovers, announcements as initialAnnouncements, users } from "@/lib/data";
+import { useHandovers, useAnnouncements, useUsers, logActivity, genId, nowIso } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
-import { FilterChip, Field, Select, ModalFooter } from "@/components/ui/primitives";
-
-type Filter = "all" | "important";
+import { FilterChip, Field, Select, Input, ModalFooter } from "@/components/ui/primitives";
 
 export default function HandoversPage() {
-  const [handovers, setHandovers] = useState(initialHandovers);
-  const [announcements, setAnnouncements] = useState(initialAnnouncements);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [handovers, setHandovers] = useHandovers();
+  const [announcements, setAnnouncements] = useAnnouncements();
+  const [users] = useUsers();
+  const [filter, setFilter] = useState<"all" | "important">("all");
   const [composeOpen, setComposeOpen] = useState(false);
+  const [draft, setDraft] = useState({ userId: "", content: "", important: false });
 
   const list = useMemo(() => filter === "important" ? handovers.filter((h) => h.important) : handovers, [handovers, filter]);
 
   function markAnnouncementRead(id: string) {
-    setAnnouncements((a) => a.filter((x) => x.id !== id));
+    setAnnouncements((cur) => cur.filter((x) => x.id !== id));
     toast("お知らせを既読にしました", "ok");
+  }
+
+  function save() {
+    if (!draft.content.trim()) {
+      toast("内容を入力してください", "warn");
+      return;
+    }
+    const user = users.find((u) => u.id === draft.userId);
+    setHandovers((cur) => [
+      { id: genId("H"), at: nowIso(), staff: "田中 太郎", userId: draft.userId || undefined, userName: user?.name, content: draft.content, important: draft.important },
+      ...cur,
+    ]);
+    logActivity(`申し送り記載${draft.important ? "（★重要）" : ""}：${draft.content.slice(0, 20)}…`);
+    toast("申し送りを記載しました", "ok");
+    setComposeOpen(false);
+    setDraft({ userId: "", content: "", important: false });
   }
 
   return (
@@ -61,28 +77,35 @@ export default function HandoversPage() {
         </div>
 
         <div className="card">
-          <ul className="divide-y divide-ink-100">
-            {list.map((h) => {
-              const user = users.find((u) => u.name === h.userName);
-              return (
-                <li key={h.id} className={"px-4 py-3 hover:bg-ink-50/60 cursor-pointer " + (h.important ? "bg-err-50/30" : "")} onClick={() => toast(`${h.staff}：${h.content}`, h.important ? "err" : "info")}>
-                  <div className="flex items-start gap-3 text-[13px]">
-                    <div className="num text-[11px] text-ink-500 shrink-0 w-32">{h.at}</div>
-                    <div className="text-[12px] text-ink-700 shrink-0 w-20">{h.staff}</div>
-                    {user ? (
-                      <Link href={`/users/${user.id}`} onClick={(e) => e.stopPropagation()} className="text-brand-700 hover:underline shrink-0 w-28 truncate">{h.userName} 様</Link>
-                    ) : (
-                      <span className="text-ink-500 shrink-0 w-28">{h.userName ?? "—"}</span>
-                    )}
-                    <div className="flex-1">
-                      {h.important && <span className="text-err-700 font-semibold mr-1">★ 重要</span>}
-                      <span className={h.important ? "text-err-700 font-semibold" : "text-ink-900"}>{h.content}</span>
+          {list.length === 0 ? (
+            <div className="px-4 py-10 text-center text-[13px] text-ink-500">
+              {handovers.length === 0 ? "申し送りはまだ記載されていません" : "該当する申し送りはありません"}
+            </div>
+          ) : (
+            <ul className="divide-y divide-ink-100">
+              {list.map((h) => {
+                const user = users.find((u) => u.id === h.userId);
+                return (
+                  <li key={h.id} className={"px-4 py-3 hover:bg-ink-50/60 " + (h.important ? "bg-err-50/30" : "")}>
+                    <div className="flex items-start gap-3 text-[13px]">
+                      <div className="num text-[11px] text-ink-500 shrink-0 w-32">{h.at}</div>
+                      <div className="text-[12px] text-ink-700 shrink-0 w-20">{h.staff}</div>
+                      {user ? (
+                        <Link href={`/users/${user.id}`} className="text-brand-700 hover:underline shrink-0 w-28 truncate">{h.userName} 様</Link>
+                      ) : (
+                        <span className="text-ink-500 shrink-0 w-28">{h.userName ?? "—"}</span>
+                      )}
+                      <div className="flex-1">
+                        {h.important && <span className="text-err-700 font-semibold mr-1">★ 重要</span>}
+                        <span className={h.important ? "text-err-700 font-semibold" : "text-ink-900"}>{h.content}</span>
+                      </div>
+                      <button onClick={() => { setHandovers((cur) => cur.filter((x) => x.id !== h.id)); toast("削除しました", "ok"); }} className="text-[11px] text-ink-400 hover:text-err-700">削除</button>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </section>
 
@@ -90,29 +113,27 @@ export default function HandoversPage() {
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
         title="申し送りを記載"
-        footer={
-          <ModalFooter
-            onCancel={() => setComposeOpen(false)}
-            onConfirm={() => {
-              setHandovers((cur) => [{ id: `H-${Date.now()}`, at: "2026-05-12 10:00", staff: "田中", userName: undefined, content: "（新規記載）", important: false }, ...cur]);
-              toast("申し送りを記載しました", "ok");
-              setComposeOpen(false);
-            }}
-            confirmLabel="記載"
-          />
-        }
+        footer={<ModalFooter onCancel={() => setComposeOpen(false)} onConfirm={save} confirmLabel="記載" />}
       >
         <div className="space-y-3">
           <Field label="対象利用者（任意）">
-            <Select>
+            <Select value={draft.userId} onChange={(e) => setDraft({ ...draft, userId: e.target.value })}>
               <option value="">— なし —</option>
-              {users.map((u) => <option key={u.id}>{u.name}</option>)}
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
           </Field>
           <Field label="内容">
-            <textarea rows={4} className="w-full px-3 py-2 border border-ink-200 rounded text-[13px]" />
+            <textarea
+              rows={4}
+              value={draft.content}
+              onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+              className="w-full px-3 py-2 border border-ink-200 rounded text-[13px]"
+            />
           </Field>
-          <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" /> ★ 重要としてマーク</label>
+          <label className="flex items-center gap-2 text-[12px]">
+            <input type="checkbox" checked={draft.important} onChange={(e) => setDraft({ ...draft, important: e.target.checked })} />
+            ★ 重要としてマーク
+          </label>
         </div>
       </Modal>
     </div>

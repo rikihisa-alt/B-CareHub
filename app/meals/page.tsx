@@ -1,15 +1,24 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { buildMonthMealCounts, monthTotal, vendors, type DayMealCount } from "@/lib/data";
-import { downloadCsv, doPrint, notImplementedYet } from "@/components/ui/helpers";
+import { useUsers, useMealConfirmations, useSingleCancellations, todayIso } from "@/lib/store";
+import { downloadCsv, doPrint } from "@/components/ui/helpers";
 import { toast } from "@/components/ui/toast";
 
 export default function MealsPage() {
-  const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(5);
+  const today = todayIso();
+  const [year, setYear] = useState(Number(today.slice(0, 4)));
+  const [month, setMonth] = useState(Number(today.slice(5, 7)));
 
-  const counts = buildMonthMealCounts(year, month);
+  const [users] = useUsers();
+  const [confirmations] = useMealConfirmations();
+  const [singleCancellations] = useSingleCancellations();
+
+  const counts = useMemo(
+    () => buildMonthMealCounts(year, month, users, singleCancellations, confirmations),
+    [year, month, users, singleCancellations, confirmations],
+  );
   const total = monthTotal(counts);
 
   const firstWeekday = new Date(year, month - 1, 1).getDay();
@@ -21,30 +30,23 @@ export default function MealsPage() {
   const weeks: (DayMealCount | null)[][] = [];
   for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
 
-  function prevMonth() {
-    if (month === 1) { setYear(year - 1); setMonth(12); }
-    else setMonth(month - 1);
-  }
-  function nextMonth() {
-    if (month === 12) { setYear(year + 1); setMonth(1); }
-    else setMonth(month + 1);
-  }
+  function prev() { if (month === 1) { setYear(year - 1); setMonth(12); } else setMonth(month - 1); }
+  function next() { if (month === 12) { setYear(year + 1); setMonth(1); } else setMonth(month + 1); }
 
   function exportCsv() {
-    const rows: (string | number)[][] = [
+    downloadCsv(`食事発注_${year}-${String(month).padStart(2, "0")}.csv`, [
       ["日付", "曜日", "朝パン", "朝ジュース", "昼A", "昼B", "夕A", "夕B", "キャンセル"],
       ...counts.map((c) => [
         c.date,
         ["日", "月", "火", "水", "木", "金", "土"][c.weekday],
         c.bread, c.juice, c.lunchA, c.lunchB, c.dinnerA, c.dinnerB, c.cancelCount,
       ]),
-    ];
-    downloadCsv(`食事発注_${year}-${String(month).padStart(2, "0")}.csv`, rows);
+    ]);
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
+      <header className="flex items-end justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">食事発注カレンダー</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">
@@ -52,14 +54,21 @@ export default function MealsPage() {
           </p>
         </div>
         <div className="flex gap-2 text-[12px] no-print">
-          <button onClick={prevMonth} className="btn">◀ 前月</button>
-          <button onClick={nextMonth} className="btn">翌月 ▶</button>
-          <Link href={`/meals/${year}-${String(month).padStart(2, "0")}-12`} className="btn">本日の日別詳細</Link>
+          <button onClick={prev} className="btn">◀ 前月</button>
+          <button onClick={next} className="btn">翌月 ▶</button>
+          <Link href={`/meals/${today}`} className="btn">本日の日別詳細</Link>
           <button onClick={() => toast("業者別発注表は日別詳細から出力できます", "info")} className="btn">業者別発注表</button>
           <button onClick={doPrint} className="btn">印刷</button>
           <button onClick={exportCsv} className="btn">CSV</button>
         </div>
-      </div>
+      </header>
+
+      {users.length === 0 && (
+        <div className="card p-5 text-center bg-info-50/30">
+          <div className="text-[13px] text-ink-600 mb-3">利用者が登録されていないため食数は 0 です。</div>
+          <Link href="/users" className="btn btn-primary">利用者を登録する</Link>
+        </div>
+      )}
 
       <div className="card p-3 grid grid-cols-2 md:grid-cols-7 gap-3 text-[13px]">
         <Total t="朝パン" v={total.bread} />
@@ -80,9 +89,7 @@ export default function MealsPage() {
           ))}
         </div>
         <div className="grid grid-cols-7">
-          {weeks.flat().map((c, i) => (
-            <DayCell key={i} c={c} prev={i > 0 ? weeks.flat()[i - 1] : null} />
-          ))}
+          {weeks.flat().map((c, i) => <DayCell key={i} c={c} prev={i > 0 ? weeks.flat()[i - 1] : null} />)}
         </div>
       </div>
 
@@ -116,9 +123,7 @@ function DayCell({ c, prev }: { c: DayMealCount | null; prev: DayMealCount | nul
   return (
     <Link href={`/meals/${c.date}`} className={"min-h-[128px] border-r border-b border-ink-100 p-1.5 text-[11px] block hover:bg-brand-50/30 " + wkBg}>
       <div className="flex items-center justify-between">
-        <span className={"num font-semibold text-[13px] " + (c.weekday === 0 || c.isHoliday ? "text-err-700" : c.weekday === 6 ? "text-info-700" : "text-ink-900")}>
-          {day}
-        </span>
+        <span className={"num font-semibold text-[13px] " + (c.weekday === 0 || c.isHoliday ? "text-err-700" : c.weekday === 6 ? "text-info-700" : "text-ink-900")}>{day}</span>
         <span className="flex items-center gap-0.5 text-[10px]">
           {allConfirmed ? <span title="全確定">🔒</span> : anyConfirmed ? <span title="一部確定">◐</span> : null}
           {c.cancelCount > 0 && <span title={`キャンセル${c.cancelCount}件`}>⚠</span>}
