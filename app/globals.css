@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --bg: #f7f8f9;
+  --bg: #f3f4f6;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #111827;
-  --text-muted: #6b7280;
+  --border: #e3e6ea;
+  --text: #1a1a1a;
+  --muted: #6b7280;
 }
 
 html, body {
@@ -15,14 +15,51 @@ html, body {
   color: var(--text);
   font-feature-settings: "palt";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.6;
 }
+
+* { letter-spacing: 0.01em; }
 
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
+/* Card primitive */
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Button primitives */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background 0.1s ease;
+}
+.btn:hover { background: #f7f8f9; }
+.btn-primary {
+  background: #067782;
+  border-color: #067782;
+  color: #fff;
+}
+.btn-primary:hover { background: #04606a; }
+.btn-arrow::after { content: "→"; margin-left: 4px; }
+
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; }
+  aside, header, footer { display: none !important; }
+  main { max-width: 100% !important; padding: 0 !important; }
 }

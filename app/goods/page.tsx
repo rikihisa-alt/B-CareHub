@@ -15,62 +15,58 @@ export default function GoodsPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold">日用品管理</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            登録 {goods.length} 品目 / 在庫不足 <span className="text-amber-700 font-semibold">{lowStock.length} 品目</span>
+          <h1 className="text-[22px] font-semibold text-ink-900">日用品管理</h1>
+          <p className="text-[12px] text-ink-500 mt-0.5">
+            登録 {goods.length} 品目 ／ 在庫不足 <span className="text-warn-700 font-semibold">{lowStock.length} 品目</span>
           </p>
         </div>
-        <div className="flex gap-2 text-sm no-print">
-          <button className="px-3 py-1.5 border border-gray-200 rounded-md bg-white hover:bg-gray-50">
-            発注候補表
-          </button>
-          <button className="px-3 py-1.5 rounded-md bg-brand-500 text-white hover:bg-brand-600">
-            + 商品登録
-          </button>
+        <div className="flex gap-2 text-[12px] no-print">
+          <button className="btn">発注候補表</button>
+          <button className="btn btn-primary">＋ 商品登録</button>
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-md overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
             <tr className="text-left">
-              <th className="px-3 py-2 text-xs font-semibold">商品名</th>
-              <th className="px-3 py-2 text-xs font-semibold">カテゴリ</th>
-              <th className="px-3 py-2 text-xs font-semibold">発注先</th>
-              <th className="px-3 py-2 text-xs font-semibold text-right">単価</th>
-              <th className="px-3 py-2 text-xs font-semibold text-right">在庫</th>
-              <th className="px-3 py-2 text-xs font-semibold text-right">最低在庫</th>
-              <th className="px-3 py-2 text-xs font-semibold text-right">今月使用</th>
-              <th className="px-3 py-2 text-xs font-semibold text-center">利用者請求</th>
-              <th className="px-3 py-2 text-xs font-semibold text-center">状態</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold">商品名</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold">カテゴリ</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold">発注先</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-right">単価</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-right">在庫</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-right">最低在庫</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-right">今月使用</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-center">利用者請求</th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold text-center">状態</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody>
             {goods.map((g, i) => {
               const low = g.stock < g.min;
               return (
-                <tr key={i} className={"hover:bg-gray-50 " + (low ? "bg-amber-50/40" : "")}>
-                  <td className="px-3 py-2 font-medium">{g.name}</td>
-                  <td className="px-3 py-2 text-gray-600 text-xs">{g.cat}</td>
-                  <td className="px-3 py-2 text-gray-700 text-xs">{g.supplier}</td>
-                  <td className="px-3 py-2 text-right num">¥{g.price}</td>
-                  <td className={"px-3 py-2 text-right num font-bold " + (low ? "text-amber-700" : "")}>
+                <tr key={i} className={"border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60 " + (low ? "bg-warn-50/30" : "")}>
+                  <td className="px-3 py-2.5 font-medium text-ink-900">{g.name}</td>
+                  <td className="px-3 py-2.5 text-ink-600 text-[12px]">{g.cat}</td>
+                  <td className="px-3 py-2.5 text-ink-700 text-[12px]">{g.supplier}</td>
+                  <td className="px-3 py-2.5 text-right num">¥{g.price}</td>
+                  <td className={"px-3 py-2.5 text-right num font-bold " + (low ? "text-warn-700" : "text-ink-900")}>
                     {g.stock}
                   </td>
-                  <td className="px-3 py-2 text-right num text-gray-500">{g.min}</td>
-                  <td className="px-3 py-2 text-right num">{g.monthUsed}</td>
-                  <td className="px-3 py-2 text-center text-xs">
+                  <td className="px-3 py-2.5 text-right num text-ink-500">{g.min}</td>
+                  <td className="px-3 py-2.5 text-right num text-ink-900">{g.monthUsed}</td>
+                  <td className="px-3 py-2.5 text-center text-[12px]">
                     {g.billable
-                      ? <span className="text-emerald-700">対象</span>
-                      : <span className="text-gray-400">共用</span>}
+                      ? <span className="text-ok-700 font-semibold">対象</span>
+                      : <span className="text-ink-400">共用</span>}
                   </td>
-                  <td className="px-3 py-2 text-center">
+                  <td className="px-3 py-2.5 text-center">
                     {low ? (
-                      <span className="text-[11px] px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                      <span className="text-[11px] px-2 py-0.5 rounded border bg-warn-50 text-warn-700 border-warn-600/30 font-semibold">
                         要発注
                       </span>
                     ) : (
-                      <span className="text-[11px] px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      <span className="text-[11px] px-2 py-0.5 rounded border bg-ok-50 text-ok-700 border-ok-600/30 font-semibold">
                         OK
                       </span>
                     )}

@@ -11,27 +11,21 @@ export default function BillingPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold">月次請求管理</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            2026年5月分 — 利用者 {users.length}名 / 合計 <span className="font-bold text-brand-700">{jpy(totalAll)}</span> / 確定済 0件 / 未確定 {users.length}件
+          <h1 className="text-[22px] font-semibold text-ink-900">月次請求管理</h1>
+          <p className="text-[12px] text-ink-500 mt-0.5">
+            2026年5月分 ／ 利用者 {users.length}名 ／ 合計 <span className="font-bold text-brand-700 num">{jpy(totalAll)}</span> ／ 確定 0件 ／ 未確定 {users.length}件
           </p>
         </div>
-        <div className="flex gap-2 text-sm no-print">
-          <button className="px-3 py-1.5 border border-gray-200 rounded-md bg-white hover:bg-gray-50">
-            CSV出力
-          </button>
-          <button className="px-3 py-1.5 border border-gray-200 rounded-md bg-white hover:bg-gray-50">
-            印刷
-          </button>
-          <button className="px-3 py-1.5 rounded-md bg-brand-500 text-white hover:bg-brand-600">
-            一括確定
-          </button>
+        <div className="flex gap-2 text-[12px] no-print">
+          <button className="btn">CSV出力</button>
+          <button className="btn">印刷</button>
+          <button className="btn btn-primary">一括確定</button>
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-md overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
+      <div className="card overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
             <tr>
               <Th className="text-left w-14">部屋</Th>
               <Th className="text-left">氏名</Th>
@@ -46,17 +40,17 @@ export default function BillingPage() {
               <Th>立替</Th>
               <Th>その他</Th>
               <Th className="text-right">合計</Th>
-              <Th className="w-20">ステータス</Th>
+              <Th className="w-24">ステータス</Th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody>
             {users.map((u) => {
               const b = u.monthlyBilling;
               const total = totalOf(u);
               return (
-                <tr key={u.id} className="hover:bg-gray-50">
-                  <td className="px-2 py-2 num font-semibold">{u.room}</td>
-                  <td className="px-2 py-2">
+                <tr key={u.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                  <td className="px-2 py-2.5 num font-semibold text-ink-900">{u.room}</td>
+                  <td className="px-2 py-2.5">
                     <Link href={`/users/${u.id}`} className="hover:underline text-brand-700">
                       {u.name}
                     </Link>
@@ -71,11 +65,11 @@ export default function BillingPage() {
                   <Td v={b.nursing} />
                   <Td v={b.advance} />
                   <Td v={b.other} />
-                  <td className="px-2 py-2 text-right num font-bold text-brand-700">
+                  <td className="px-2 py-2.5 text-right num font-bold text-brand-700">
                     {jpy(total)}
                   </td>
-                  <td className="px-2 py-2 text-center">
-                    <span className="text-[11px] px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                  <td className="px-2 py-2.5 text-center">
+                    <span className="text-[11px] px-2 py-0.5 rounded border bg-warn-50 text-warn-700 border-warn-600/30 font-semibold">
                       未確定
                     </span>
                   </td>
@@ -83,9 +77,9 @@ export default function BillingPage() {
               );
             })}
           </tbody>
-          <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+          <tfoot className="bg-ink-50 border-t-2 border-ink-200">
             <tr>
-              <td className="px-2 py-2.5 text-sm font-semibold" colSpan={2}>合計</td>
+              <td className="px-2 py-3 text-[13px] font-semibold" colSpan={2}>合計</td>
               <Tf v={sum("rent")} />
               <Tf v={sum("common")} />
               <Tf v={sum("utility")} />
@@ -96,7 +90,7 @@ export default function BillingPage() {
               <Tf v={sum("nursing")} />
               <Tf v={sum("advance")} />
               <Tf v={sum("other")} />
-              <td className="px-2 py-2.5 text-right num text-base font-bold text-brand-700">
+              <td className="px-2 py-3 text-right num text-[15px] font-bold text-brand-700">
                 {jpy(totalAll)}
               </td>
               <td></td>
@@ -105,20 +99,20 @@ export default function BillingPage() {
         </table>
       </div>
 
-      <p className="text-xs text-gray-500">
-        ※ 各行をクリックすると利用者別請求明細を開きます。請求確定後は自動再計算で上書きされません。
+      <p className="text-[11px] text-ink-500">
+        ※ 氏名クリックで利用者別請求明細を開きます。請求確定後は自動再計算で上書きされません。
       </p>
     </div>
   );
 }
 
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <th className={"px-2 py-2 text-[11px] font-semibold text-right " + (className ?? "")}>{children}</th>;
+function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
+  return <th className={"px-2 py-2.5 text-[11px] font-semibold text-right " + (className ?? "")}>{children}</th>;
 }
 function Td({ v }: { v: number }) {
-  if (v === 0) return <td className="px-2 py-2 text-right num text-gray-300">—</td>;
-  return <td className="px-2 py-2 text-right num">{v.toLocaleString("ja-JP")}</td>;
+  if (v === 0) return <td className="px-2 py-2.5 text-right num text-ink-300">—</td>;
+  return <td className="px-2 py-2.5 text-right num text-ink-900">{v.toLocaleString("ja-JP")}</td>;
 }
 function Tf({ v }: { v: number }) {
-  return <td className="px-2 py-2.5 text-right num font-semibold">{v.toLocaleString("ja-JP")}</td>;
+  return <td className="px-2 py-3 text-right num font-semibold text-ink-900">{v.toLocaleString("ja-JP")}</td>;
 }

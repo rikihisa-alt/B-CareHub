@@ -19,38 +19,38 @@ export default function DocsTasksPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">書類・タスク管理</h1>
-        <p className="text-sm text-gray-500 mt-0.5">期限切れ・未回収・未完了を一元管理</p>
+        <h1 className="text-[22px] font-semibold text-ink-900">書類・タスク管理</h1>
+        <p className="text-[12px] text-ink-500 mt-0.5">期限切れ・未回収・未完了を一元管理</p>
       </div>
 
       {/* 書類 */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-700 mb-2">書類管理</h2>
-        <div className="bg-white border border-gray-200 rounded-md overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
+        <h2 className="text-[14px] font-semibold text-ink-800 mb-2">書類管理</h2>
+        <div className="card overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
               <tr className="text-left">
-                <th className="px-3 py-2 text-xs font-semibold">利用者</th>
-                <th className="px-3 py-2 text-xs font-semibold">書類名</th>
-                <th className="px-3 py-2 text-xs font-semibold">回収状況</th>
-                <th className="px-3 py-2 text-xs font-semibold">有効期限</th>
-                <th className="px-3 py-2 text-xs font-semibold w-20">状態</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">書類名</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">回収状況</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">有効期限</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold w-24 text-center">状態</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {docs.map((d, i) => (
-                <tr key={i} className={d.flag === "warn" ? "bg-amber-50/40" : ""}>
-                  <td className="px-3 py-2">{d.user}</td>
-                  <td className="px-3 py-2">{d.doc}</td>
-                  <td className="px-3 py-2 text-xs">{d.status}</td>
-                  <td className="px-3 py-2 num text-xs">{d.expires}</td>
-                  <td className="px-3 py-2 text-center">
+                <tr key={i} className={"border-b border-ink-100 last:border-b-0 " + (d.flag === "warn" ? "bg-warn-50/30" : "")}>
+                  <td className="px-3 py-2.5 text-ink-900">{d.user}</td>
+                  <td className="px-3 py-2.5 text-ink-900">{d.doc}</td>
+                  <td className="px-3 py-2.5 text-[12px]">{d.status}</td>
+                  <td className="px-3 py-2.5 num text-[12px]">{d.expires}</td>
+                  <td className="px-3 py-2.5 text-center">
                     {d.flag === "warn" ? (
-                      <span className="text-[11px] px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">
+                      <span className="text-[11px] px-2 py-0.5 rounded border bg-warn-50 text-warn-700 border-warn-600/30 font-semibold">
                         要対応
                       </span>
                     ) : (
-                      <span className="text-[11px] px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      <span className="text-[11px] px-2 py-0.5 rounded border bg-ok-50 text-ok-700 border-ok-600/30 font-semibold">
                         OK
                       </span>
                     )}
@@ -64,34 +64,34 @@ export default function DocsTasksPage() {
 
       {/* タスク */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-700 mb-2">タスク</h2>
-        <div className="bg-white border border-gray-200 rounded-md overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
+        <h2 className="text-[14px] font-semibold text-ink-800 mb-2">タスク</h2>
+        <div className="card overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
               <tr className="text-left">
-                <th className="px-3 py-2 text-xs font-semibold">タスク</th>
-                <th className="px-3 py-2 text-xs font-semibold">利用者</th>
-                <th className="px-3 py-2 text-xs font-semibold">担当</th>
-                <th className="px-3 py-2 text-xs font-semibold">期限</th>
-                <th className="px-3 py-2 text-xs font-semibold">優先度</th>
-                <th className="px-3 py-2 text-xs font-semibold">ステータス</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">タスク</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">利用者</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">担当</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">期限</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">優先度</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold">ステータス</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {tasks.map((t, i) => (
-                <tr key={i}>
-                  <td className="px-3 py-2 font-medium">{t.title}</td>
-                  <td className="px-3 py-2 text-gray-600">{t.user}</td>
-                  <td className="px-3 py-2 text-gray-700">{t.assignee}</td>
-                  <td className="px-3 py-2 num">{t.due}</td>
-                  <td className="px-3 py-2">
-                    <span className={"text-[11px] px-2 py-0.5 rounded border " + (
+                <tr key={i} className="border-b border-ink-100 last:border-b-0">
+                  <td className="px-3 py-2.5 font-medium text-ink-900">{t.title}</td>
+                  <td className="px-3 py-2.5 text-ink-700">{t.user}</td>
+                  <td className="px-3 py-2.5 text-ink-700">{t.assignee}</td>
+                  <td className="px-3 py-2.5 num">{t.due}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={"text-[11px] px-2 py-0.5 rounded border font-semibold " + (
                       t.priority === "高"
-                        ? "bg-rose-50 text-rose-700 border-rose-200"
-                        : "bg-gray-100 text-gray-700 border-gray-200"
+                        ? "bg-err-50 text-err-700 border-err-600/30"
+                        : "bg-ink-100 text-ink-700 border-ink-200"
                     )}>{t.priority}</span>
                   </td>
-                  <td className="px-3 py-2 text-xs">{t.status}</td>
+                  <td className="px-3 py-2.5 text-[12px]">{t.status}</td>
                 </tr>
               ))}
             </tbody>
