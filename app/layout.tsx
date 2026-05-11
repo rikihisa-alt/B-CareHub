@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { SideMenu } from "@/components/nav";
+import { ToastContainer } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   title: "B-CareHub | 住宅型有料老人ホーム業務管理",
@@ -64,6 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </aside>
           <main className="flex-1 px-7 py-6 max-w-[1320px]">{children}</main>
         </div>
+
+        <ToastContainer />
 
         <footer className="no-print border-t border-ink-200 bg-white">
           <div className="px-6 py-2.5 text-[11px] text-ink-500 flex justify-between">

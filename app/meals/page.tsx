@@ -1,9 +1,14 @@
+"use client";
 import Link from "next/link";
+import { useState } from "react";
 import { buildMonthMealCounts, monthTotal, vendors, type DayMealCount } from "@/lib/data";
+import { downloadCsv, doPrint, notImplementedYet } from "@/components/ui/helpers";
+import { toast } from "@/components/ui/toast";
 
 export default function MealsPage() {
-  const year = 2026;
-  const month = 5;
+  const [year, setYear] = useState(2026);
+  const [month, setMonth] = useState(5);
+
   const counts = buildMonthMealCounts(year, month);
   const total = monthTotal(counts);
 
@@ -16,6 +21,27 @@ export default function MealsPage() {
   const weeks: (DayMealCount | null)[][] = [];
   for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
 
+  function prevMonth() {
+    if (month === 1) { setYear(year - 1); setMonth(12); }
+    else setMonth(month - 1);
+  }
+  function nextMonth() {
+    if (month === 12) { setYear(year + 1); setMonth(1); }
+    else setMonth(month + 1);
+  }
+
+  function exportCsv() {
+    const rows: (string | number)[][] = [
+      ["日付", "曜日", "朝パン", "朝ジュース", "昼A", "昼B", "夕A", "夕B", "キャンセル"],
+      ...counts.map((c) => [
+        c.date,
+        ["日", "月", "火", "水", "木", "金", "土"][c.weekday],
+        c.bread, c.juice, c.lunchA, c.lunchB, c.dinnerA, c.dinnerB, c.cancelCount,
+      ]),
+    ];
+    downloadCsv(`食事発注_${year}-${String(month).padStart(2, "0")}.csv`, rows);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-end justify-between">
@@ -26,16 +52,15 @@ export default function MealsPage() {
           </p>
         </div>
         <div className="flex gap-2 text-[12px] no-print">
-          <button className="btn">◀ 前月</button>
-          <button className="btn">翌月 ▶</button>
-          <Link href="/meals/2026-05-11" className="btn">本日の日別詳細</Link>
-          <button className="btn">業者別発注表</button>
-          <button className="btn">PDF</button>
-          <button className="btn">Excel</button>
+          <button onClick={prevMonth} className="btn">◀ 前月</button>
+          <button onClick={nextMonth} className="btn">翌月 ▶</button>
+          <Link href={`/meals/${year}-${String(month).padStart(2, "0")}-12`} className="btn">本日の日別詳細</Link>
+          <button onClick={() => toast("業者別発注表は日別詳細から出力できます", "info")} className="btn">業者別発注表</button>
+          <button onClick={doPrint} className="btn">印刷</button>
+          <button onClick={exportCsv} className="btn">CSV</button>
         </div>
       </div>
 
-      {/* 月合計 */}
       <div className="card p-3 grid grid-cols-2 md:grid-cols-7 gap-3 text-[13px]">
         <Total t="朝パン" v={total.bread} />
         <Total t="朝ジュース" v={total.juice} />
@@ -46,17 +71,10 @@ export default function MealsPage() {
         <Total t="キャンセル合計" v={total.cancelCount} tone="warn" />
       </div>
 
-      {/* カレンダー */}
       <div className="card overflow-hidden">
         <div className="grid grid-cols-7 text-[12px] font-semibold text-ink-600 bg-ink-50 border-b border-ink-200">
           {["日", "月", "火", "水", "木", "金", "土"].map((d, i) => (
-            <div
-              key={d}
-              className={
-                "px-2 py-2 text-center border-r border-ink-200 last:border-r-0 " +
-                (i === 0 ? "text-err-700" : i === 6 ? "text-info-700" : "")
-              }
-            >
+            <div key={d} className={"px-2 py-2 text-center border-r border-ink-200 last:border-r-0 " + (i === 0 ? "text-err-700" : i === 6 ? "text-info-700" : "")}>
               {d}
             </div>
           ))}
@@ -68,7 +86,6 @@ export default function MealsPage() {
         </div>
       </div>
 
-      {/* 凡例 */}
       <div className="card p-3 text-[11px] text-ink-600 flex flex-wrap gap-x-5 gap-y-1">
         <span>🔒 確定済（全食事区分）</span>
         <span>◐ 一部確定（朝のみ等）</span>
@@ -91,21 +108,13 @@ function Total({ t, v, tone }: { t: string; v: number; tone?: "warn" }) {
 }
 
 function DayCell({ c, prev }: { c: DayMealCount | null; prev: DayMealCount | null }) {
-  if (!c) {
-    return <div className="min-h-[128px] border-r border-b border-ink-100 bg-ink-50/40" />;
-  }
+  if (!c) return <div className="min-h-[128px] border-r border-b border-ink-100 bg-ink-50/40" />;
   const day = Number(c.date.slice(-2));
-  const wkBg =
-    c.weekday === 0 || c.isHoliday ? "bg-err-50/30"
-    : c.weekday === 6 ? "bg-info-50/40"
-    : "bg-white";
+  const wkBg = c.weekday === 0 || c.isHoliday ? "bg-err-50/30" : c.weekday === 6 ? "bg-info-50/40" : "bg-white";
   const allConfirmed = c.confirmed.breakfast && c.confirmed.lunch && c.confirmed.dinner;
   const anyConfirmed = c.confirmed.breakfast || c.confirmed.lunch || c.confirmed.dinner;
   return (
-    <Link
-      href={`/meals/${c.date}`}
-      className={"min-h-[128px] border-r border-b border-ink-100 p-1.5 text-[11px] block hover:bg-brand-50/30 " + wkBg}
-    >
+    <Link href={`/meals/${c.date}`} className={"min-h-[128px] border-r border-b border-ink-100 p-1.5 text-[11px] block hover:bg-brand-50/30 " + wkBg}>
       <div className="flex items-center justify-between">
         <span className={"num font-semibold text-[13px] " + (c.weekday === 0 || c.isHoliday ? "text-err-700" : c.weekday === 6 ? "text-info-700" : "text-ink-900")}>
           {day}
@@ -116,7 +125,6 @@ function DayCell({ c, prev }: { c: DayMealCount | null; prev: DayMealCount | nul
           {c.noteFlag && <span title="土曜：A社が日曜分含む">📌</span>}
         </span>
       </div>
-
       <div className="mt-1 space-y-0.5">
         <Line label="朝🍞" v={c.bread} prev={prev?.bread} />
         <Line label="朝🥤" v={c.juice} prev={prev?.juice} />
@@ -130,14 +138,7 @@ function DayCell({ c, prev }: { c: DayMealCount | null; prev: DayMealCount | nul
 }
 
 function Line({ label, v, prev }: { label: string; v: number; prev?: number }) {
-  if (v === 0) {
-    return (
-      <div className="flex justify-between text-ink-300">
-        <span>{label}</span>
-        <span className="num">—</span>
-      </div>
-    );
-  }
+  if (v === 0) return <div className="flex justify-between text-ink-300"><span>{label}</span><span className="num">—</span></div>;
   const diff = prev !== undefined ? v - prev : null;
   return (
     <div className="flex justify-between">
@@ -145,9 +146,7 @@ function Line({ label, v, prev }: { label: string; v: number; prev?: number }) {
       <span className="flex items-baseline gap-1">
         <span className="num font-semibold text-ink-900">{v}</span>
         {diff !== null && diff !== 0 && (
-          <span className={"text-[9px] num " + (diff > 0 ? "text-info-600" : "text-err-600")}>
-            {diff > 0 ? `+${diff}` : diff}
-          </span>
+          <span className={"text-[9px] num " + (diff > 0 ? "text-info-600" : "text-err-600")}>{diff > 0 ? `+${diff}` : diff}</span>
         )}
       </span>
     </div>
