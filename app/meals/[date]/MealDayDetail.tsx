@@ -5,20 +5,30 @@ import { buildMonthMealCounts, buildDayDetail, vendors, timeToDeadline } from "@
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
+import { Field, Input, Select, MealStateChip, Pill, ModalFooter } from "@/components/ui/primitives";
+
+type MealType = "breakfast" | "lunch" | "dinner";
+
+const MEAL_LABEL: Record<MealType, string> = {
+  breakfast: "朝食",
+  lunch: "昼食",
+  dinner: "夕食",
+};
+
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 export function MealDayDetail({ ymd }: { ymd: string }) {
   const [y, m, d] = ymd.split("-").map(Number);
   const date = new Date(y, m - 1, d);
-  const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+  const weekday = WEEKDAYS[date.getDay()];
 
   const counts = buildMonthMealCounts(y, m);
   const today = counts.find((c) => c.date === ymd)!;
 
-  // ローカル確定状態（モーダルから操作可能に）
   const [confirmed, setConfirmed] = useState({ ...today.confirmed });
-  const [confirmModal, setConfirmModal] = useState<null | "breakfast" | "lunch" | "dinner">(null);
-  const [adjustOpen, setAdjustOpen] = useState<null | string>(null);
-  const [addOpen, setAddOpen] = useState<null | string>(null);
+  const [confirmModal, setConfirmModal] = useState<MealType | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState<string | null>(null);
 
   const breakfast = buildDayDetail(ymd, "breakfast");
   const lunchA = buildDayDetail(ymd, "lunch", "A社");
@@ -26,16 +36,15 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
   const dinnerA = buildDayDetail(ymd, "dinner", "A社");
   const dinnerB = buildDayDetail(ymd, "dinner", "B社");
 
-  function doConfirm(type: "breakfast" | "lunch" | "dinner") {
+  function doConfirm(type: MealType) {
     setConfirmed((c) => ({ ...c, [type]: true }));
-    const label = type === "breakfast" ? "朝食" : type === "lunch" ? "昼食" : "夕食";
-    toast(`${ymd} の${label}発注を確定しました`, "ok");
+    toast(`${ymd} の${MEAL_LABEL[type]}発注を確定しました`, "ok");
     setConfirmModal(null);
   }
 
   function exportVendorCsv(vendor: string, mealType: string, list: ReturnType<typeof buildDayDetail>) {
     const targets = list.filter((x) => x.status === "対象");
-    const rows: (string | number)[][] = [
+    downloadCsv(`発注表_${vendor}_${ymd}.csv`, [
       [`業者：${vendor}`, `区分：${mealType}`, `日付：${ymd}`],
       [],
       ["部屋", "氏名", "形態", "アレルギー", "状態", "理由"],
@@ -46,17 +55,25 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
       ]),
       [],
       ["最終発注数", targets.length],
-    ];
-    downloadCsv(`発注表_${vendor}_${ymd}.csv`, rows);
+    ]);
   }
+
+  const summary: { label: string; v: number }[] = [
+    { label: "朝🍞", v: today.bread },
+    { label: "朝🥤", v: today.juice },
+    { label: "昼 A社", v: today.lunchA },
+    { label: "昼 B社", v: today.lunchB },
+    { label: "夕 A社", v: today.dinnerA },
+    { label: "夕 B社", v: today.dinnerB },
+  ];
 
   return (
     <div className="space-y-5">
-      <div className="text-[12px] text-ink-500">
+      <nav className="text-[12px] text-ink-500">
         <Link href="/meals" className="hover:underline">食事発注カレンダー</Link>
         <span className="mx-1.5">/</span>
         <span className="text-ink-400 num">{ymd}</span>
-      </div>
+      </nav>
 
       <div className="card p-4">
         <div className="flex items-start justify-between gap-4">
@@ -66,26 +83,26 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
               <span className="ml-2 text-[14px] text-ink-500 font-normal">（{weekday}）</span>
               {today.isHoliday && <span className="ml-2 text-[12px] text-err-700">祝日</span>}
             </h1>
-            <div className="mt-2 flex flex-wrap gap-2 text-[12px]">
+            <div className="mt-2 flex flex-wrap gap-2">
               <StatusChip label="朝食" confirmed={confirmed.breakfast} deadline="—" />
               <StatusChip label="昼食" confirmed={confirmed.lunch} deadline={vendors[0].deadlineTime} showCountdown />
               <StatusChip label="夕食" confirmed={confirmed.dinner} deadline="15:00" />
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <button onClick={() => setConfirmModal("lunch")} className="btn btn-primary text-[12px]">発注確定</button>
-            <button onClick={() => toast("食札 PDF：A4 1枚に 8名分。利用者ごと・食事区分ごとに 1ラベル発行（プロトタイプでは未生成）", "info")} className="btn text-[12px]">食札 PDF</button>
-            <button onClick={doPrint} className="btn text-[12px]">業者別発注表 印刷</button>
+            <button onClick={() => setConfirmModal("lunch")} className="btn btn-primary">発注確定</button>
+            <button onClick={() => toast("食札 PDF：A4 1枚に 8名分。利用者ごと・食事区分ごとに 1ラベル発行（プロトタイプでは未生成）", "info")} className="btn">食札 PDF</button>
+            <button onClick={doPrint} className="btn">業者別発注表 印刷</button>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-3 md:grid-cols-6 gap-3 pt-4 border-t border-ink-100">
-          <Summary label="朝🍞" v={today.bread} />
-          <Summary label="朝🥤" v={today.juice} />
-          <Summary label="昼 A社" v={today.lunchA} />
-          <Summary label="昼 B社" v={today.lunchB} />
-          <Summary label="夕 A社" v={today.dinnerA} />
-          <Summary label="夕 B社" v={today.dinnerB} />
+          {summary.map((s) => (
+            <div key={s.label}>
+              <div className="text-[11px] text-ink-500">{s.label}</div>
+              <div className="num text-[22px] font-bold text-ink-900 mt-0.5">{s.v}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -148,66 +165,50 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
         breakdowns={[{ name: "弁当", count: today.dinnerB, list: dinnerB }]}
       />
 
-      {/* 発注確定モーダル */}
       <Modal
         open={confirmModal !== null}
         onClose={() => setConfirmModal(null)}
-        title={`${confirmModal === "breakfast" ? "朝食" : confirmModal === "lunch" ? "昼食" : "夕食"} 発注確定`}
-        footer={
-          <>
-            <button className="btn text-[12px]" onClick={() => setConfirmModal(null)}>取消</button>
-            <button className="btn btn-primary text-[12px]" onClick={() => confirmModal && doConfirm(confirmModal)}>確定する</button>
-          </>
-        }
+        title={`${confirmModal ? MEAL_LABEL[confirmModal] : ""} 発注確定`}
+        footer={<ModalFooter onCancel={() => setConfirmModal(null)} onConfirm={() => confirmModal && doConfirm(confirmModal)} confirmLabel="確定する" />}
       >
-        <p className="mb-3">{ymd} の{confirmModal === "breakfast" ? "朝食" : confirmModal === "lunch" ? "昼食" : "夕食"}発注を確定します。</p>
+        <p className="mb-3">{ymd} の{confirmModal ? MEAL_LABEL[confirmModal] : ""}発注を確定します。</p>
         <ul className="bg-ink-50 rounded p-3 text-[12px] space-y-1">
           <li>確定後はステータス変更があっても自動再計算されません。</li>
           <li>解除は管理者のみ可能で、理由の入力が必要です。</li>
         </ul>
       </Modal>
 
-      {/* 当日追加ドロワー */}
       <Drawer
         open={addOpen !== null}
         onClose={() => setAddOpen(null)}
         title={`${addOpen ?? ""} に当日追加`}
-        footer={<>
-          <button className="btn text-[12px]" onClick={() => setAddOpen(null)}>取消</button>
-          <button className="btn btn-primary text-[12px]" onClick={() => { toast(`${addOpen} の当日追加を保存しました`, "ok"); setAddOpen(null); }}>追加</button>
-        </>}
+        footer={<ModalFooter onCancel={() => setAddOpen(null)} onConfirm={() => { toast(`${addOpen} の当日追加を保存しました`, "ok"); setAddOpen(null); }} confirmLabel="追加" />}
       >
         <Field label="対象利用者">
-          <select className="w-full px-3 py-2 border border-ink-200 rounded">
+          <Select>
             <option value="">— 選択 —</option>
             <option>佐藤 ヨシ子（101）</option>
             <option>高橋 正一（103）</option>
-          </select>
+          </Select>
         </Field>
-        <Field label="理由（必須）">
-          <input className="w-full px-3 py-2 border border-ink-200 rounded" placeholder="例：来客・代食手配" />
-        </Field>
+        <div className="mt-3">
+          <Field label="理由（必須）"><Input placeholder="例：来客・代食手配" /></Field>
+        </div>
         <div className="bg-info-50 border-l-[3px] border-info-600 rounded-r px-3 py-2 mt-3 text-[12px] text-ink-800">
           当日追加は変更履歴に記録され、業者への発注表に反映されます。
         </div>
       </Drawer>
 
-      {/* 手動調整ドロワー */}
       <Drawer
         open={adjustOpen !== null}
         onClose={() => setAdjustOpen(null)}
         title={`${adjustOpen ?? ""} の手動調整`}
-        footer={<>
-          <button className="btn text-[12px]" onClick={() => setAdjustOpen(null)}>取消</button>
-          <button className="btn btn-primary text-[12px]" onClick={() => { toast(`${adjustOpen} の手動調整を保存しました`, "ok"); setAdjustOpen(null); }}>保存</button>
-        </>}
+        footer={<ModalFooter onCancel={() => setAdjustOpen(null)} onConfirm={() => { toast(`${adjustOpen} の手動調整を保存しました`, "ok"); setAdjustOpen(null); }} />}
       >
-        <Field label="調整数（±）">
-          <input type="number" defaultValue={0} className="w-full px-3 py-2 border border-ink-200 rounded num" />
-        </Field>
-        <Field label="理由（必須）">
-          <input className="w-full px-3 py-2 border border-ink-200 rounded" placeholder="例：誤発注修正、業者発注ミス補正" />
-        </Field>
+        <Field label="調整数（±）"><Input type="number" defaultValue={0} className="num" /></Field>
+        <div className="mt-3">
+          <Field label="理由（必須）"><Input placeholder="例：誤発注修正、業者発注ミス補正" /></Field>
+        </div>
         <div className="bg-warn-50 border-l-[3px] border-warn-600 rounded-r px-3 py-2 mt-3 text-[12px]">
           手動調整は変更履歴・監査ログの両方に記録されます。
         </div>
@@ -216,16 +217,9 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-3 first:mt-0">
-      <div className="text-[11px] text-ink-600 mb-1">{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function StatusChip({ label, confirmed, deadline, showCountdown }: { label: string; confirmed: boolean; deadline: string; showCountdown?: boolean }) {
+function StatusChip({
+  label, confirmed, deadline, showCountdown,
+}: { label: string; confirmed: boolean; deadline: string; showCountdown?: boolean }) {
   const t = !confirmed && showCountdown ? timeToDeadline(deadline === "—" ? "23:59" : deadline) : null;
   return (
     <span
@@ -243,21 +237,18 @@ function StatusChip({ label, confirmed, deadline, showCountdown }: { label: stri
   );
 }
 
-function Summary({ label, v }: { label: string; v: number }) {
-  return (
-    <div>
-      <div className="text-[11px] text-ink-500">{label}</div>
-      <div className="num text-[22px] font-bold text-ink-900 mt-0.5">{v}</div>
-    </div>
-  );
-}
-
 function VendorBlock({
   title, deadline, confirmed, showCountdown, breakdowns, onConfirm, onAdd, onAdjust, onExport,
 }: {
-  title: string; deadline: string; confirmed: boolean; showCountdown?: boolean;
+  title: string;
+  deadline: string;
+  confirmed: boolean;
+  showCountdown?: boolean;
   breakdowns: { name: string; count: number; list: ReturnType<typeof buildDayDetail> }[];
-  onConfirm: () => void; onAdd: () => void; onAdjust: () => void; onExport: () => void;
+  onConfirm: () => void;
+  onAdd: () => void;
+  onAdjust: () => void;
+  onExport: () => void;
 }) {
   const t = !confirmed && showCountdown ? timeToDeadline(deadline) : null;
   return (
@@ -271,15 +262,15 @@ function VendorBlock({
               あと {t.hours}h {t.minutes}m
             </span>
           )}
-          <span className={"ml-2 text-[11px] px-2 py-0.5 rounded border font-semibold " + (confirmed ? "bg-ok-50 text-ok-700 border-ok-600/30" : "bg-warn-50 text-warn-700 border-warn-600/30")}>
-            {confirmed ? "✓ 確定済" : "⚠ 未確定"}
+          <span className="ml-2">
+            <MealStateChip state={confirmed ? "confirmed" : "unconfirmed"} />
           </span>
         </div>
-        <div className="flex gap-2 text-[11px]">
-          {!confirmed && <button onClick={onConfirm} className="btn btn-primary text-[11px] py-0.5">この区分を確定</button>}
-          <button onClick={onAdd} className="btn text-[11px] py-0.5">+ 当日追加</button>
-          <button onClick={onAdjust} className="btn text-[11px] py-0.5">手動調整</button>
-          <button onClick={onExport} className="btn text-[11px] py-0.5">CSV</button>
+        <div className="flex gap-2">
+          {!confirmed && <button onClick={onConfirm} className="btn btn-sm btn-primary">この区分を確定</button>}
+          <button onClick={onAdd} className="btn btn-sm">+ 当日追加</button>
+          <button onClick={onAdjust} className="btn btn-sm">手動調整</button>
+          <button onClick={onExport} className="btn btn-sm">CSV</button>
         </div>
       </div>
       <div className="divide-y divide-ink-100">
@@ -304,11 +295,18 @@ function VendorBlock({
   );
 }
 
-function PeopleList({ title, items, tone }: { title: string; items: ReturnType<typeof buildDayDetail>; tone: "ok" | "warn" | "err" }) {
-  const cls = tone === "ok" ? "text-ok-700 bg-ok-50/60" : tone === "warn" ? "text-warn-700 bg-warn-50/60" : "text-err-700 bg-err-50/60";
+function PeopleList({
+  title, items, tone,
+}: {
+  title: string;
+  items: ReturnType<typeof buildDayDetail>;
+  tone: "ok" | "warn" | "err";
+}) {
   return (
     <div className="mb-2 last:mb-0">
-      <div className={"text-[11px] font-semibold px-2 py-1 rounded inline-block mb-1.5 " + cls}>{title}</div>
+      <div className="mb-1.5">
+        <Pill tone={tone}>{title}</Pill>
+      </div>
       <ul className="grid grid-cols-1 md:grid-cols-2 gap-1 text-[12px]">
         {items.map((x) => (
           <li key={x.user.id} className="flex items-center gap-2 px-2 py-1 bg-ink-50/60 rounded">

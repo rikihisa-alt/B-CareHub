@@ -1,8 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
 import { downloadCsv } from "@/components/ui/helpers";
+import { Pill } from "@/components/ui/primitives";
 
-const logs = [
+type Log = { at: string; staff: string; action: string; target: string; before: string; after: string; ip: string };
+
+const LOGS: Log[] = [
   { at: "2026-05-12 08:42", staff: "田中 太郎", action: "ログイン", target: "—", before: "—", after: "—", ip: "192.168.1.10" },
   { at: "2026-05-12 08:40", staff: "田中 太郎", action: "発注確定", target: "meal_orders / 2026-05-12 朝食", before: "未確定", after: "確定済（パン18, ジュース12）", ip: "192.168.1.10" },
   { at: "2026-05-12 08:30", staff: "看護 加藤", action: "申し送り追加", target: "handovers / 小林ハル", before: "—", after: "水分量管理徹底（重要）", ip: "192.168.1.22" },
@@ -17,6 +20,22 @@ const logs = [
   { at: "2026-05-08 10:15", staff: "田中 太郎", action: "請求確定解除", target: "monthly_billings / 佐藤ヨシ子 4月分", before: "確定済", after: "未確定（理由：日用品追加漏れ）", ip: "192.168.1.10" },
 ];
 
+const ACTION_TONE: Record<string, "ok" | "warn" | "err" | "info" | "neutral"> = {
+  ログイン: "info",
+  作成: "ok",
+  更新: "info",
+  削除: "err",
+  発注確定: "ok",
+  確定解除: "warn",
+  請求確定解除: "warn",
+  ステータス変更: "warn",
+  マスタ更新: "info",
+  自動キャンセル: "neutral",
+  アラート生成: "neutral",
+  申し送り追加: "info",
+  お知らせ投稿: "info",
+};
+
 export default function AuditLogsPage() {
   const [from, setFrom] = useState("2026-05-01");
   const [to, setTo] = useState("2026-05-12");
@@ -25,7 +44,7 @@ export default function AuditLogsPage() {
   const [tableFilter, setTableFilter] = useState("all");
   const [q, setQ] = useState("");
 
-  const list = useMemo(() => logs.filter((l) => {
+  const list = useMemo(() => LOGS.filter((l) => {
     if (l.at.slice(0, 10) < from) return false;
     if (l.at.slice(0, 10) > to) return false;
     if (actionFilter !== "all" && l.action !== actionFilter) return false;
@@ -36,22 +55,21 @@ export default function AuditLogsPage() {
   }), [from, to, actionFilter, staffFilter, tableFilter, q]);
 
   function exportCsv() {
-    const rows: (string | number)[][] = [
+    downloadCsv(`監査ログ_${from}_${to}.csv`, [
       ["日時", "操作者", "操作", "対象", "変更前", "変更後", "IP"],
       ...list.map((l) => [l.at, l.staff, l.action, l.target, l.before, l.after, l.ip]),
-    ];
-    downloadCsv(`監査ログ_${from}_${to}.csv`, rows);
+    ]);
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
+      <header className="flex items-end justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">監査ログ</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">すべての更新操作の完全記録（5 年保持）。CSV 出力で行政対応・内部監査に利用できます。</p>
         </div>
-        <button onClick={exportCsv} className="btn text-[12px]">CSV エクスポート</button>
-      </div>
+        <button onClick={exportCsv} className="btn">CSV エクスポート</button>
+      </header>
 
       <div className="card p-3 flex flex-wrap gap-2 text-[12px]">
         <div className="flex items-center gap-1.5">
@@ -111,7 +129,7 @@ export default function AuditLogsPage() {
               <tr key={i} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
                 <td className="px-3 py-2 num text-ink-700">{l.at}</td>
                 <td className="px-3 py-2 text-ink-700">{l.staff}</td>
-                <td className="px-3 py-2"><ActionPill action={l.action} /></td>
+                <td className="px-3 py-2"><Pill tone={ACTION_TONE[l.action] ?? "neutral"}>{l.action}</Pill></td>
                 <td className="px-3 py-2 text-ink-800">{l.target}</td>
                 <td className="px-3 py-2 text-ink-500">{l.before}</td>
                 <td className="px-3 py-2 text-ink-900">{l.after}</td>
@@ -121,30 +139,11 @@ export default function AuditLogsPage() {
           </tbody>
         </table>
         <div className="px-4 py-2 border-t border-ink-100 bg-ink-50/40 text-[11px] text-ink-500 flex justify-between">
-          <span>{list.length} 件表示中 ／ 期間内 {logs.length} 件</span>
+          <span>{list.length} 件表示中 ／ 期間内 {LOGS.length} 件</span>
         </div>
       </div>
 
       <p className="text-[11px] text-ink-500">※ 監査ログは追記専用テーブルで、削除・編集はできません。</p>
     </div>
   );
-}
-
-function ActionPill({ action }: { action: string }) {
-  const map: Record<string, string> = {
-    ログイン: "bg-info-50 text-info-700 border-info-600/30",
-    作成: "bg-ok-50 text-ok-700 border-ok-600/30",
-    更新: "bg-info-50 text-info-700 border-info-600/30",
-    削除: "bg-err-50 text-err-700 border-err-600/30",
-    発注確定: "bg-ok-50 text-ok-700 border-ok-600/30",
-    確定解除: "bg-warn-50 text-warn-700 border-warn-600/30",
-    請求確定解除: "bg-warn-50 text-warn-700 border-warn-600/30",
-    ステータス変更: "bg-warn-50 text-warn-700 border-warn-600/30",
-    マスタ更新: "bg-info-50 text-info-700 border-info-600/30",
-    自動キャンセル: "bg-ink-100 text-ink-700 border-ink-200",
-    アラート生成: "bg-ink-100 text-ink-700 border-ink-200",
-    申し送り追加: "bg-info-50 text-info-700 border-info-600/30",
-    お知らせ投稿: "bg-info-50 text-info-700 border-info-600/30",
-  };
-  return <span className={"text-[11px] px-2 py-0.5 rounded border font-semibold " + (map[action] ?? "bg-ink-100 text-ink-700 border-ink-200")}>{action}</span>;
 }

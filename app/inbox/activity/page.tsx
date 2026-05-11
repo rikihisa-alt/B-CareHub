@@ -14,10 +14,10 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-4">
-      <div>
+      <header>
         <h1 className="text-[22px] font-semibold text-ink-900">アクティビティログ</h1>
         <p className="text-[12px] text-ink-500 mt-0.5">システム内で実行された操作の記録（過去7日 + 業務影響あり）。監査ログは管理画面から。</p>
-      </div>
+      </header>
 
       <div className="card p-3 flex flex-wrap gap-2 text-[12px]">
         <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="px-2 py-1 border border-ink-200 rounded">

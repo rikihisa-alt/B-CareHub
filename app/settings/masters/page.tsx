@@ -3,8 +3,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
+import { Field, Select, ModalFooter } from "@/components/ui/primitives";
 
-const categories = [
+const CATEGORIES = [
   { group: "施設・部屋", items: [
     { name: "施設情報", desc: "施設名、住所、ロゴ、印鑑欄", count: 1 },
     { name: "部屋マスタ", desc: "部屋番号、定員、家賃ベース額", count: 16 },
@@ -41,19 +42,19 @@ export default function MastersPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <header className="flex items-end justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">マスタ管理</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">業務マスタの編集。変更履歴は監査ログに残ります。</p>
         </div>
-        <button onClick={() => setCsvOpen(true)} className="btn text-[12px]">CSV インポート</button>
-      </div>
+        <button onClick={() => setCsvOpen(true)} className="btn">CSV インポート</button>
+      </header>
 
       <div className="card p-3 text-[12px] text-ink-600 bg-info-50/40 border-l-[3px] border-info-600">
         マスタ変更は食事発注・請求の計算に直接影響します。確定済の発注・請求は再計算されないため、月の途中での単価変更等は影響範囲をご確認ください。
       </div>
 
-      {categories.map((cat) => (
+      {CATEGORIES.map((cat) => (
         <section key={cat.group}>
           <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider mb-2">{cat.group}</h2>
           <div className="card overflow-hidden">
@@ -73,7 +74,7 @@ export default function MastersPage() {
                     <td className="px-4 py-2.5 text-[12px] text-ink-600">{it.desc}</td>
                     <td className="px-4 py-2.5 text-right num text-ink-700">{it.count}</td>
                     <td className="px-4 py-2.5 text-center">
-                      <button onClick={() => setEditing(it.name)} className="btn btn-arrow text-[11px] py-0.5">編集</button>
+                      <button onClick={() => setEditing(it.name)} className="btn btn-sm btn-arrow">編集</button>
                     </td>
                   </tr>
                 ))}
@@ -88,27 +89,38 @@ export default function MastersPage() {
         <Link href="/admin/audit-logs" className="text-brand-700 hover:underline ml-2">監査ログを見る →</Link>
       </div>
 
-      <Modal open={editing !== null} onClose={() => setEditing(null)} title={`${editing ?? ""} の編集`} size="lg" footer={<><button className="btn text-[12px]" onClick={() => setEditing(null)}>取消</button><button className="btn btn-primary text-[12px]" onClick={() => { toast(`${editing} を保存しました`, "ok"); setEditing(null); }}>保存</button></>}>
+      <Modal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title={`${editing ?? ""} の編集`}
+        size="lg"
+        footer={<ModalFooter onCancel={() => setEditing(null)} onConfirm={() => { toast(`${editing} を保存しました`, "ok"); setEditing(null); }} />}
+      >
         <div className="text-[12px] text-ink-600 mb-3">このマスタの登録項目を編集します。実装プロトタイプでは編集 UI を簡略表示しています。</div>
-        <textarea rows={6} className="w-full px-3 py-2 border border-ink-200 rounded font-mono text-[12px]" defaultValue={`# ${editing}\n# 1行1レコード（モック）\nレコード1\nレコード2\nレコード3`} />
+        <textarea
+          rows={6}
+          className="w-full px-3 py-2 border border-ink-200 rounded font-mono text-[12px]"
+          defaultValue={`# ${editing}\n# 1行1レコード（モック）\nレコード1\nレコード2\nレコード3`}
+        />
       </Modal>
 
-      <Modal open={csvOpen} onClose={() => setCsvOpen(false)} title="CSV インポート" footer={<><button className="btn text-[12px]" onClick={() => setCsvOpen(false)}>取消</button><button className="btn btn-primary text-[12px]" onClick={() => { toast("CSV をインポートしました（モック）", "ok"); setCsvOpen(false); }}>インポート</button></>}>
+      <Modal
+        open={csvOpen}
+        onClose={() => setCsvOpen(false)}
+        title="CSV インポート"
+        footer={<ModalFooter onCancel={() => setCsvOpen(false)} onConfirm={() => { toast("CSV をインポートしました（モック）", "ok"); setCsvOpen(false); }} confirmLabel="インポート" />}
+      >
         <div className="space-y-3">
-          <F label="対象マスタ">
-            <select className="w-full px-3 py-2 border border-ink-200 rounded">
-              {categories.flatMap((c) => c.items).map((it) => <option key={it.name}>{it.name}</option>)}
-            </select>
-          </F>
-          <F label="CSV ファイル">
+          <Field label="対象マスタ">
+            <Select>
+              {CATEGORIES.flatMap((c) => c.items).map((it) => <option key={it.name}>{it.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="CSV ファイル">
             <input type="file" accept=".csv" className="w-full text-[12px]" />
-          </F>
+          </Field>
         </div>
       </Modal>
     </div>
   );
-}
-
-function F({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><div className="text-[11px] text-ink-600 mb-1">{label}</div>{children}</div>;
 }

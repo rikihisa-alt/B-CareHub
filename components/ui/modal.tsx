@@ -1,5 +1,43 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+
+function useDialogClose(open: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [open, onClose]);
+}
+
+function DialogHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div className="px-5 py-3 border-b border-ink-200 flex items-center justify-between">
+      <h2 className="text-[15px] font-semibold text-ink-900">{title}</h2>
+      <button
+        onClick={onClose}
+        aria-label="閉じる"
+        className="text-ink-400 hover:text-ink-700 text-[18px] leading-none"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+function DialogFooter({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/40 flex justify-end gap-2">
+      {children}
+    </div>
+  );
+}
 
 export function Modal({
   open,
@@ -16,22 +54,9 @@ export function Modal({
   footer?: React.ReactNode;
   size?: "sm" | "md" | "lg";
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [open, onClose]);
-
+  useDialogClose(open, onClose);
   if (!open) return null;
+
   const widthCls = size === "sm" ? "max-w-sm" : size === "lg" ? "max-w-3xl" : "max-w-lg";
   return (
     <div
@@ -40,25 +65,12 @@ export function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div ref={ref} className={"bg-white rounded-lg shadow-xl w-full " + widthCls}>
-        <div className="px-5 py-3 border-b border-ink-200 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-ink-900">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-ink-400 hover:text-ink-700 text-[18px] leading-none"
-            aria-label="閉じる"
-          >
-            ×
-          </button>
-        </div>
+      <div className={`bg-white rounded-lg shadow-xl w-full ${widthCls}`}>
+        <DialogHeader title={title} onClose={onClose} />
         <div className="px-5 py-4 text-[13px] text-ink-800 max-h-[60vh] overflow-y-auto">
           {children}
         </div>
-        {footer && (
-          <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/40 flex justify-end gap-2">
-            {footer}
-          </div>
-        )}
+        {footer && <DialogFooter>{footer}</DialogFooter>}
       </div>
     </div>
   );
@@ -77,20 +89,9 @@ export function Drawer({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [open, onClose]);
-
+  useDialogClose(open, onClose);
   if (!open) return null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/40"
@@ -99,24 +100,11 @@ export function Drawer({
       }}
     >
       <div className="bg-white w-full max-w-md h-full flex flex-col shadow-2xl">
-        <div className="px-5 py-3 border-b border-ink-200 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-ink-900">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-ink-400 hover:text-ink-700 text-[18px] leading-none"
-            aria-label="閉じる"
-          >
-            ×
-          </button>
-        </div>
+        <DialogHeader title={title} onClose={onClose} />
         <div className="px-5 py-4 text-[13px] text-ink-800 flex-1 overflow-y-auto">
           {children}
         </div>
-        {footer && (
-          <div className="px-5 py-3 border-t border-ink-100 bg-ink-50/40 flex justify-end gap-2">
-            {footer}
-          </div>
-        )}
+        {footer && <DialogFooter>{footer}</DialogFooter>}
       </div>
     </div>
   );

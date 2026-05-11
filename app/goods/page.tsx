@@ -3,10 +3,11 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
+import { Pill, FilterChip, Field, Input, Select, ModalFooter } from "@/components/ui/primitives";
 
 type Good = { name: string; cat: string; supplier: string; stock: number; min: number; price: number; monthUsed: number; billable: boolean };
 
-const initial: Good[] = [
+const INITIAL: Good[] = [
   { name: "おむつ Lサイズ", cat: "排泄ケア", supplier: "ヘルスケア商事", stock: 24, min: 40, price: 85, monthUsed: 312, billable: true },
   { name: "尿取りパッド 夜用", cat: "排泄ケア", supplier: "ヘルスケア商事", stock: 56, min: 60, price: 32, monthUsed: 488, billable: true },
   { name: "リハビリパンツ M", cat: "排泄ケア", supplier: "ヘルスケア商事", stock: 80, min: 30, price: 110, monthUsed: 145, billable: true },
@@ -20,7 +21,7 @@ const initial: Good[] = [
 type Filter = "all" | "low" | "billable" | "common";
 
 export default function GoodsPage() {
-  const [goods, setGoods] = useState<Good[]>(initial);
+  const [goods, setGoods] = useState<Good[]>(INITIAL);
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [orderOpen, setOrderOpen] = useState(false);
@@ -38,39 +39,38 @@ export default function GoodsPage() {
   const lowStock = goods.filter((g) => g.stock < g.min);
 
   function exportSuggestions() {
-    const rows: (string | number)[][] = [
+    downloadCsv("発注候補表.csv", [
       ["商品名", "カテゴリ", "発注先", "現在庫", "最低在庫", "推奨発注数"],
       ...lowStock.map((g) => [g.name, g.cat, g.supplier, g.stock, g.min, Math.max(g.min * 2 - g.stock, 0)]),
-    ];
-    downloadCsv("発注候補表.csv", rows);
+    ]);
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
+      <header className="flex items-end justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">日用品管理</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">
             登録 {goods.length} 品目 ／ 在庫不足 <span className="text-warn-700 font-semibold">{lowStock.length} 品目</span>
           </p>
         </div>
-        <div className="flex gap-2 text-[12px] no-print">
+        <div className="flex gap-2 no-print">
           <button onClick={() => setOrderOpen(true)} className="btn">発注候補表</button>
           <button onClick={() => setNewOpen(true)} className="btn btn-primary">＋ 商品登録</button>
         </div>
-      </div>
+      </header>
 
-      <div className="card p-3 flex flex-wrap gap-2 text-[12px]">
-        <Chip active={filter === "all"} onClick={() => setFilter("all")}>すべて ({goods.length})</Chip>
-        <Chip active={filter === "low"} onClick={() => setFilter("low")}>在庫不足 ({lowStock.length})</Chip>
-        <Chip active={filter === "billable"} onClick={() => setFilter("billable")}>利用者請求対象</Chip>
-        <Chip active={filter === "common"} onClick={() => setFilter("common")}>施設共用</Chip>
+      <div className="card p-3 flex flex-wrap gap-2">
+        <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>すべて ({goods.length})</FilterChip>
+        <FilterChip active={filter === "low"} onClick={() => setFilter("low")}>在庫不足 ({lowStock.length})</FilterChip>
+        <FilterChip active={filter === "billable"} onClick={() => setFilter("billable")}>利用者請求対象</FilterChip>
+        <FilterChip active={filter === "common"} onClick={() => setFilter("common")}>施設共用</FilterChip>
         <input
           type="search"
           placeholder="商品名で検索"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="ml-auto px-3 py-1 border border-ink-200 rounded w-56"
+          className="ml-auto px-3 py-1 border border-ink-200 rounded w-56 text-[12px]"
         />
       </div>
 
@@ -107,13 +107,10 @@ export default function GoodsPage() {
                   <td className="px-3 py-2.5 text-right num text-ink-900">{g.monthUsed}</td>
                   <td className="px-3 py-2.5 text-center text-[12px]">{g.billable ? <span className="text-ok-700 font-semibold">対象</span> : <span className="text-ink-400">共用</span>}</td>
                   <td className="px-3 py-2.5 text-center">
-                    {low
-                      ? <span className="text-[11px] px-2 py-0.5 rounded border bg-warn-50 text-warn-700 border-warn-600/30 font-semibold">要発注</span>
-                      : <span className="text-[11px] px-2 py-0.5 rounded border bg-ok-50 text-ok-700 border-ok-600/30 font-semibold">OK</span>
-                    }
+                    <Pill tone={low ? "warn" : "ok"}>{low ? "要発注" : "OK"}</Pill>
                   </td>
                   <td className="px-3 py-2.5 text-center">
-                    <button onClick={() => setEditTarget(g)} className="btn text-[11px] py-0.5">編集</button>
+                    <button onClick={() => setEditTarget(g)} className="btn btn-sm">編集</button>
                   </td>
                 </tr>
               );
@@ -122,14 +119,21 @@ export default function GoodsPage() {
         </table>
       </div>
 
-      {/* 発注候補モーダル */}
-      <Modal open={orderOpen} onClose={() => setOrderOpen(false)} title={`発注候補表（${lowStock.length} 品目）`} size="lg" footer={
-        <>
-          <button className="btn text-[12px]" onClick={() => setOrderOpen(false)}>閉じる</button>
-          <button className="btn text-[12px]" onClick={() => { exportSuggestions(); setOrderOpen(false); }}>CSV ダウンロード</button>
-          <button className="btn btn-primary text-[12px]" onClick={() => { toast("発注を業者へ送信しました（モック）", "ok"); setOrderOpen(false); }}>業者へ送信</button>
-        </>
-      }>
+      <Modal
+        open={orderOpen}
+        onClose={() => setOrderOpen(false)}
+        title={`発注候補表（${lowStock.length} 品目）`}
+        size="lg"
+        footer={
+          <ModalFooter
+            onCancel={() => setOrderOpen(false)}
+            onConfirm={() => { toast("発注を業者へ送信しました（モック）", "ok"); setOrderOpen(false); }}
+            cancelLabel="閉じる"
+            confirmLabel="業者へ送信"
+            extra={<button className="btn btn-sm" onClick={() => { exportSuggestions(); setOrderOpen(false); }}>CSV ダウンロード</button>}
+          />
+        }
+      >
         <table className="w-full text-[12px]">
           <thead className="border-b border-ink-200">
             <tr className="text-left text-ink-600">
@@ -150,60 +154,54 @@ export default function GoodsPage() {
         </table>
       </Modal>
 
-      {/* 新規商品 */}
-      <Modal open={newOpen} onClose={() => setNewOpen(false)} title="商品登録" footer={
-        <>
-          <button className="btn text-[12px]" onClick={() => setNewOpen(false)}>取消</button>
-          <button className="btn btn-primary text-[12px]" onClick={() => {
-            setGoods((g) => [...g, { name: "新商品", cat: "その他", supplier: "—", stock: 0, min: 0, price: 0, monthUsed: 0, billable: true }]);
-            toast("商品を登録しました", "ok");
-            setNewOpen(false);
-          }}>登録</button>
-        </>
-      }>
+      <Modal
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        title="商品登録"
+        footer={
+          <ModalFooter
+            onCancel={() => setNewOpen(false)}
+            onConfirm={() => {
+              setGoods((g) => [...g, { name: "新商品", cat: "その他", supplier: "—", stock: 0, min: 0, price: 0, monthUsed: 0, billable: true }]);
+              toast("商品を登録しました", "ok");
+              setNewOpen(false);
+            }}
+            confirmLabel="登録"
+          />
+        }
+      >
         <div className="grid grid-cols-2 gap-3">
-          <F label="商品名"><input className="w-full px-3 py-2 border border-ink-200 rounded" /></F>
-          <F label="カテゴリ"><select className="w-full px-3 py-2 border border-ink-200 rounded"><option>排泄ケア</option><option>口腔ケア</option><option>感染対策</option><option>共用消耗品</option></select></F>
-          <F label="発注先"><input className="w-full px-3 py-2 border border-ink-200 rounded" /></F>
-          <F label="単価"><input type="number" className="w-full px-3 py-2 border border-ink-200 rounded num" /></F>
-          <F label="最低在庫"><input type="number" className="w-full px-3 py-2 border border-ink-200 rounded num" /></F>
-          <F label="利用者請求対象">
-            <select className="w-full px-3 py-2 border border-ink-200 rounded"><option>対象</option><option>共用</option></select>
-          </F>
+          <Field label="商品名"><Input /></Field>
+          <Field label="カテゴリ">
+            <Select><option>排泄ケア</option><option>口腔ケア</option><option>感染対策</option><option>共用消耗品</option></Select>
+          </Field>
+          <Field label="発注先"><Input /></Field>
+          <Field label="単価"><Input type="number" className="num" /></Field>
+          <Field label="最低在庫"><Input type="number" className="num" /></Field>
+          <Field label="利用者請求対象"><Select><option>対象</option><option>共用</option></Select></Field>
         </div>
       </Modal>
 
-      {/* 編集 */}
-      <Modal open={editTarget !== null} onClose={() => setEditTarget(null)} title={`商品編集：${editTarget?.name ?? ""}`} footer={
-        <>
-          <button className="btn text-[12px]" onClick={() => setEditTarget(null)}>取消</button>
-          <button className="btn btn-primary text-[12px]" onClick={() => { toast("商品情報を保存しました", "ok"); setEditTarget(null); }}>保存</button>
-        </>
-      }>
+      <Modal
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title={`商品編集：${editTarget?.name ?? ""}`}
+        footer={
+          <ModalFooter
+            onCancel={() => setEditTarget(null)}
+            onConfirm={() => { toast("商品情報を保存しました", "ok"); setEditTarget(null); }}
+          />
+        }
+      >
         {editTarget && (
           <div className="grid grid-cols-2 gap-3">
-            <F label="商品名"><input className="w-full px-3 py-2 border border-ink-200 rounded" defaultValue={editTarget.name} /></F>
-            <F label="単価"><input type="number" className="w-full px-3 py-2 border border-ink-200 rounded num" defaultValue={editTarget.price} /></F>
-            <F label="在庫"><input type="number" className="w-full px-3 py-2 border border-ink-200 rounded num" defaultValue={editTarget.stock} /></F>
-            <F label="最低在庫"><input type="number" className="w-full px-3 py-2 border border-ink-200 rounded num" defaultValue={editTarget.min} /></F>
+            <Field label="商品名"><Input defaultValue={editTarget.name} /></Field>
+            <Field label="単価"><Input type="number" defaultValue={editTarget.price} className="num" /></Field>
+            <Field label="在庫"><Input type="number" defaultValue={editTarget.stock} className="num" /></Field>
+            <Field label="最低在庫"><Input type="number" defaultValue={editTarget.min} className="num" /></Field>
           </div>
         )}
       </Modal>
     </div>
-  );
-}
-
-function F({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><div className="text-[11px] text-ink-600 mb-1">{label}</div>{children}</div>;
-}
-
-function Chip({ children, active, onClick }: { children: React.ReactNode; active?: boolean; onClick?: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={"px-3 py-1.5 rounded border " + (active ? "bg-brand-600 text-white border-brand-600" : "bg-white text-ink-700 border-ink-200 hover:bg-ink-50")}
-    >
-      {children}
-    </button>
   );
 }

@@ -27,17 +27,18 @@ html, body {
   font-feature-settings: "tnum";
 }
 
-/* Card primitive */
+/* ====== Components ====== */
+
 .card {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
-/* Button primitives */
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -46,15 +47,23 @@ html, body {
   color: #1a1a1a;
   font-size: 13px;
   line-height: 1.4;
-  transition: background 0.1s ease;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+  white-space: nowrap;
 }
 .btn:hover { background: #f7f8f9; }
+
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
 .btn-primary {
   background: #067782;
   border-color: #067782;
   color: #fff;
 }
-.btn-primary:hover { background: #04606a; }
+.btn-primary:hover { background: #04606a; border-color: #04606a; }
+
 .btn-arrow::after { content: "→"; margin-left: 4px; }
 
 @media print {
