@@ -41,10 +41,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Body: sidebar + main */}
         <div className="flex">
-          <aside className="w-[240px] shrink-0 px-4 py-5 no-print">
+          <aside className="w-[220px] shrink-0 px-3 py-4 no-print">
             <SideMenu />
           </aside>
-          <main className="flex-1 px-6 py-6 max-w-[1200px]">{children}</main>
+          <main className="flex-1 px-6 py-6 max-w-[1280px]">{children}</main>
         </div>
 
         <footer className="no-print mt-12 border-t border-ink-200 bg-white">

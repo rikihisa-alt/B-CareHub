@@ -1,4 +1,5 @@
-import { buildMonthMealCounts, monthTotal, type DayMealCount } from "@/lib/data";
+import Link from "next/link";
+import { buildMonthMealCounts, monthTotal, vendors, type DayMealCount } from "@/lib/data";
 
 export default function MealsPage() {
   const year = 2026;
@@ -12,7 +13,6 @@ export default function MealsPage() {
     ...counts,
   ];
   while (grid.length % 7 !== 0) grid.push(null);
-
   const weeks: (DayMealCount | null)[][] = [];
   for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
 
@@ -22,19 +22,20 @@ export default function MealsPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">食事発注カレンダー</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">
-            {year}年{month}月 ／ 朝パン・ジュース、昼A社・B社、夕A社・B社
+            {year}年{month}月 ／ 業者別締切：A社 {vendors[0].deadlineTime} ／ B社 {vendors[1].deadlineTime} ／ パン {vendors[2].deadlineTime}
           </p>
         </div>
         <div className="flex gap-2 text-[12px] no-print">
           <button className="btn">◀ 前月</button>
           <button className="btn">翌月 ▶</button>
+          <Link href="/meals/2026-05-11" className="btn">本日の日別詳細</Link>
           <button className="btn">業者別発注表</button>
-          <button className="btn">印刷</button>
-          <button className="btn">CSV</button>
+          <button className="btn">PDF</button>
+          <button className="btn">Excel</button>
         </div>
       </div>
 
-      {/* 月合計サマリ */}
+      {/* 月合計 */}
       <div className="card p-3 grid grid-cols-2 md:grid-cols-7 gap-3 text-[13px]">
         <Total t="朝パン" v={total.bread} />
         <Total t="朝ジュース" v={total.juice} />
@@ -42,7 +43,7 @@ export default function MealsPage() {
         <Total t="昼 B社" v={total.lunchB} />
         <Total t="夕 A社" v={total.dinnerA} />
         <Total t="夕 B社" v={total.dinnerB} />
-        <Total t="キャンセル" v={total.cancelCount} tone="warn" />
+        <Total t="キャンセル合計" v={total.cancelCount} tone="warn" />
       </div>
 
       {/* カレンダー */}
@@ -62,18 +63,19 @@ export default function MealsPage() {
         </div>
         <div className="grid grid-cols-7">
           {weeks.flat().map((c, i) => (
-            <DayCell key={i} c={c} />
+            <DayCell key={i} c={c} prev={i > 0 ? weeks.flat()[i - 1] : null} />
           ))}
         </div>
       </div>
 
       {/* 凡例 */}
-      <div className="text-[11px] text-ink-500 flex flex-wrap gap-4">
-        <span>🔒 確定済み</span>
-        <span>⚠ キャンセルあり</span>
-        <span>📌 備考あり</span>
-        <span>＋日 ＝ 土曜にA社が日曜分も含めて配達</span>
-        <span>日曜のA社は配達なし（前日土曜にまとめ済み）</span>
+      <div className="card p-3 text-[11px] text-ink-600 flex flex-wrap gap-x-5 gap-y-1">
+        <span>🔒 確定済（全食事区分）</span>
+        <span>◐ 一部確定（朝のみ等）</span>
+        <span>⚠ キャンセル発生</span>
+        <span>📌 業者特殊配達（土曜にA社が日曜分を含む）</span>
+        <span>＋N / −N：前日比</span>
+        <span>日曜のA社は配達なし</span>
       </div>
     </div>
   );
@@ -88,41 +90,46 @@ function Total({ t, v, tone }: { t: string; v: number; tone?: "warn" }) {
   );
 }
 
-function DayCell({ c }: { c: DayMealCount | null }) {
+function DayCell({ c, prev }: { c: DayMealCount | null; prev: DayMealCount | null }) {
   if (!c) {
-    return <div className="min-h-[120px] border-r border-b border-ink-100 bg-ink-50/40" />;
+    return <div className="min-h-[128px] border-r border-b border-ink-100 bg-ink-50/40" />;
   }
   const day = Number(c.date.slice(-2));
   const wkBg =
     c.weekday === 0 || c.isHoliday ? "bg-err-50/30"
     : c.weekday === 6 ? "bg-info-50/40"
     : "bg-white";
+  const allConfirmed = c.confirmed.breakfast && c.confirmed.lunch && c.confirmed.dinner;
+  const anyConfirmed = c.confirmed.breakfast || c.confirmed.lunch || c.confirmed.dinner;
   return (
-    <div className={"min-h-[120px] border-r border-b border-ink-100 p-2 text-[11px] " + wkBg}>
+    <Link
+      href={`/meals/${c.date}`}
+      className={"min-h-[128px] border-r border-b border-ink-100 p-1.5 text-[11px] block hover:bg-brand-50/30 " + wkBg}
+    >
       <div className="flex items-center justify-between">
         <span className={"num font-semibold text-[13px] " + (c.weekday === 0 || c.isHoliday ? "text-err-700" : c.weekday === 6 ? "text-info-700" : "text-ink-900")}>
           {day}
         </span>
         <span className="flex items-center gap-0.5 text-[10px]">
-          {c.confirmed && <span title="確定済">🔒</span>}
+          {allConfirmed ? <span title="全確定">🔒</span> : anyConfirmed ? <span title="一部確定">◐</span> : null}
           {c.cancelCount > 0 && <span title={`キャンセル${c.cancelCount}件`}>⚠</span>}
-          {c.noteFlag && <span title="土曜：日曜分含む">📌</span>}
+          {c.noteFlag && <span title="土曜：A社が日曜分含む">📌</span>}
         </span>
       </div>
 
-      <div className="mt-1.5 space-y-0.5">
-        <Line label="朝パン" v={c.bread} />
-        <Line label="朝🥤" v={c.juice} />
-        <Line label="昼A" v={c.lunchA} />
-        <Line label="昼B" v={c.lunchB} />
-        <Line label="夕A" v={c.dinnerA} />
-        <Line label="夕B" v={c.dinnerB} />
+      <div className="mt-1 space-y-0.5">
+        <Line label="朝🍞" v={c.bread} prev={prev?.bread} />
+        <Line label="朝🥤" v={c.juice} prev={prev?.juice} />
+        <Line label="昼A" v={c.lunchA} prev={prev?.lunchA} />
+        <Line label="昼B" v={c.lunchB} prev={prev?.lunchB} />
+        <Line label="夕A" v={c.dinnerA} prev={prev?.dinnerA} />
+        <Line label="夕B" v={c.dinnerB} prev={prev?.dinnerB} />
       </div>
-    </div>
+    </Link>
   );
 }
 
-function Line({ label, v }: { label: string; v: number }) {
+function Line({ label, v, prev }: { label: string; v: number; prev?: number }) {
   if (v === 0) {
     return (
       <div className="flex justify-between text-ink-300">
@@ -131,10 +138,18 @@ function Line({ label, v }: { label: string; v: number }) {
       </div>
     );
   }
+  const diff = prev !== undefined ? v - prev : null;
   return (
     <div className="flex justify-between">
       <span className="text-ink-500">{label}</span>
-      <span className="num font-semibold text-ink-900">{v}</span>
+      <span className="flex items-baseline gap-1">
+        <span className="num font-semibold text-ink-900">{v}</span>
+        {diff !== null && diff !== 0 && (
+          <span className={"text-[9px] num " + (diff > 0 ? "text-info-600" : "text-err-600")}>
+            {diff > 0 ? `+${diff}` : diff}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

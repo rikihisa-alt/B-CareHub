@@ -23,6 +23,25 @@ export default function BillingPage() {
         </div>
       </div>
 
+      {/* 請求漏れ検知バー */}
+      {(() => {
+        const suspect = users.filter((u) => u.status === "入居中" && u.monthlyBilling.meal === 0);
+        if (suspect.length === 0) return null;
+        return (
+          <div className="bg-err-50 border-l-4 border-err-600 rounded-r-md px-4 py-2.5 text-[13px]">
+            <span className="text-err-700 font-semibold">⚠ 請求漏れ疑い {suspect.length} 件：</span>
+            <span className="text-ink-900 ml-1">
+              {suspect.map((u) => (
+                <Link key={u.id} href={`/billing/${u.id}`} className="text-brand-700 hover:underline mr-3">
+                  {u.name} 様
+                </Link>
+              ))}
+            </span>
+            <span className="text-ink-600 text-[12px]">食事は提供されていますが食費が ¥0 です。</span>
+          </div>
+        );
+      })()}
+
       <div className="card overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
