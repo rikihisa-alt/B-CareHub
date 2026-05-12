@@ -1,15 +1,20 @@
 "use client";
-import { useState } from "react";
-import { useAnnouncements, logActivity, genId, nowIso } from "@/lib/store";
+import { useMemo, useState } from "react";
+import { useAnnouncements, useFacilities, useCurrentFacilityId, logActivity, genId, nowIso, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { Field, Input, ModalFooter } from "@/components/ui/primitives";
 
 export default function AnnouncementsPage() {
-  const [items, setItems] = useAnnouncements();
+  const [allItems, setItems] = useAnnouncements();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const items = useMemo(() => filterByFacility(allItems, currentFacilityId), [allItems, currentFacilityId]);
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [composeOpen, setComposeOpen] = useState(false);
-  const [draft, setDraft] = useState({ title: "", body: "", pinned: false });
+  const [draft, setDraft] = useState({ title: "", body: "", pinned: false, allFacilities: false });
 
   function markRead(id: string) {
     setReadIds((s) => new Set(s).add(id));
@@ -22,13 +27,13 @@ export default function AnnouncementsPage() {
       return;
     }
     setItems((cur) => [
-      { id: genId("AN"), title: draft.title, body: draft.body, postedBy: "田中 太郎", postedAt: nowIso(), pinned: draft.pinned },
+      { id: genId("AN"), facilityId: draft.allFacilities ? undefined : defaultFacilityId, title: draft.title, body: draft.body, postedBy: "田中 太郎", postedAt: nowIso(), pinned: draft.pinned },
       ...cur,
     ]);
     logActivity(`お知らせ「${draft.title}」を投稿`);
     toast("お知らせを投稿しました", "ok");
     setComposeOpen(false);
-    setDraft({ title: "", body: "", pinned: false });
+    setDraft({ title: "", body: "", pinned: false, allFacilities: false });
   }
 
   function remove(id: string) {
@@ -93,6 +98,10 @@ export default function AnnouncementsPage() {
           <label className="flex items-center gap-2 text-[12px]">
             <input type="checkbox" checked={draft.pinned} onChange={(e) => setDraft({ ...draft, pinned: e.target.checked })} />
             📌 ピン留めにする
+          </label>
+          <label className="flex items-center gap-2 text-[12px]">
+            <input type="checkbox" checked={draft.allFacilities} onChange={(e) => setDraft({ ...draft, allFacilities: e.target.checked })} />
+            🌐 全施設に配信する（チェックなしは現在の施設のみ）
           </label>
         </div>
       </Modal>

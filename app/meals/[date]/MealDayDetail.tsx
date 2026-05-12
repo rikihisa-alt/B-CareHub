@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { buildMonthMealCounts, buildDayDetail, vendors, timeToDeadline } from "@/lib/data";
-import { useUsers, useMealConfirmations, useSingleCancellations, logActivity, genId } from "@/lib/store";
+import { useUsers, useMealConfirmations, useSingleCancellations, useCurrentFacilityId, logActivity, genId, filterByFacility } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
@@ -17,13 +17,25 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
   const date = new Date(y, m - 1, d);
   const weekday = WEEKDAYS[date.getDay()];
 
-  const [users] = useUsers();
+  const [allUsers] = useUsers();
   const [confirmations, setConfirmations] = useMealConfirmations();
   const [singleCancellations, setSingleCancellations] = useSingleCancellations();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+
+  const confirmKey = currentFacilityId === null ? null : `${currentFacilityId}_${ymd}`;
+  const scopedConfirmations = useMemo(() => {
+    if (currentFacilityId === null) return {} as typeof confirmations;
+    const result: typeof confirmations = {};
+    Object.entries(confirmations).forEach(([key, val]) => {
+      if (key.startsWith(`${currentFacilityId}_`)) result[key.split("_")[1]] = val;
+    });
+    return result;
+  }, [confirmations, currentFacilityId]);
 
   const counts = useMemo(
-    () => buildMonthMealCounts(y, m, users, singleCancellations, confirmations),
-    [y, m, users, singleCancellations, confirmations],
+    () => buildMonthMealCounts(y, m, users, singleCancellations, scopedConfirmations),
+    [y, m, users, singleCancellations, scopedConfirmations],
   );
   const today = counts.find((c) => c.date === ymd)!;
   const confirmed = today.confirmed;
@@ -40,7 +52,11 @@ export function MealDayDetail({ ymd }: { ymd: string }) {
   const dinnerB = buildDayDetail(ymd, "dinner", users, singleCancellations, "B社");
 
   function doConfirm(type: MealType) {
-    setConfirmations((cur) => ({ ...cur, [ymd]: { ...cur[ymd], [type]: true } }));
+    if (!confirmKey) {
+      toast("施設を選択してから確定してください", "warn");
+      return;
+    }
+    setConfirmations((cur) => ({ ...cur, [confirmKey]: { ...cur[confirmKey], [type]: true } }));
     logActivity(`${ymd} の${MEAL_LABEL[type]}発注を確定`);
     toast(`${ymd} の${MEAL_LABEL[type]}発注を確定しました`, "ok");
     setConfirmModal(null);

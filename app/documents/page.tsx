@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
 import { type DocItem, type Task } from "@/lib/data";
-import { useDocuments, useTasks, useUsers, logActivity, genId, todayIso } from "@/lib/store";
+import { useDocuments, useTasks, useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, todayIso, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { Pill, PriorityPill, FilterChip, Field, Input, Select, ModalFooter } from "@/components/ui/primitives";
@@ -17,9 +18,15 @@ function emptyTask(): TaskDraft {
 }
 
 export default function DocsTasksPage() {
-  const [docs, setDocs] = useDocuments();
-  const [tasks, setTasks] = useTasks();
-  const [users] = useUsers();
+  const [allDocs, setDocs] = useDocuments();
+  const [allTasks, setTasks] = useTasks();
+  const [allUsers] = useUsers();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const docs = useMemo(() => filterByFacility(allDocs, currentFacilityId), [allDocs, currentFacilityId]);
+  const tasks = useMemo(() => filterByFacility(allTasks, currentFacilityId), [allTasks, currentFacilityId]);
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
 
   const [docFilter, setDocFilter] = useState<"all" | "warn">("all");
   const [taskFilter, setTaskFilter] = useState<"all" | "open" | "done">("open");
@@ -43,7 +50,9 @@ export default function DocsTasksPage() {
       toast("利用者と書類名を入力してください", "warn");
       return;
     }
-    setDocs((cur) => [...cur, { id: genId("D"), ...docDraft }]);
+    const u = allUsers.find((x) => x.id === docDraft.userId);
+    const facilityId = u?.facilityId ?? defaultFacilityId;
+    setDocs((cur) => [...cur, { id: genId("D"), facilityId, ...docDraft }]);
     logActivity(`書類「${docDraft.doc}」を ${docDraft.userName} 様 に登録`);
     toast("書類を登録しました", "ok");
     setNewDocOpen(false);
@@ -70,8 +79,9 @@ export default function DocsTasksPage() {
       toast("タスク名を入力してください", "warn");
       return;
     }
-    const user = users.find((u) => u.id === taskDraft.userId);
-    setTasks((cur) => [{ id: genId("T"), ...taskDraft, userName: user?.name }, ...cur]);
+    const user = allUsers.find((u) => u.id === taskDraft.userId);
+    const facilityId = user?.facilityId ?? defaultFacilityId;
+    setTasks((cur) => [{ id: genId("T"), facilityId, ...taskDraft, userName: user?.name }, ...cur]);
     logActivity(`タスク「${taskDraft.title}」を追加`);
     toast("タスクを追加しました", "ok");
     setNewTaskOpen(false);

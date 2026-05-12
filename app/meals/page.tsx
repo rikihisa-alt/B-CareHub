@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { buildMonthMealCounts, monthTotal, vendors, type DayMealCount } from "@/lib/data";
-import { useUsers, useMealConfirmations, useSingleCancellations, todayIso } from "@/lib/store";
+import { useUsers, useMealConfirmations, useSingleCancellations, useCurrentFacilityId, todayIso, filterByFacility } from "@/lib/store";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
 import { toast } from "@/components/ui/toast";
 
@@ -11,13 +11,40 @@ export default function MealsPage() {
   const [year, setYear] = useState(Number(today.slice(0, 4)));
   const [month, setMonth] = useState(Number(today.slice(5, 7)));
 
-  const [users] = useUsers();
+  const [allUsers] = useUsers();
   const [confirmations] = useMealConfirmations();
   const [singleCancellations] = useSingleCancellations();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+
+  // 施設別の確定状態（key: ${facilityId}_${date}、 全施設の場合は date のみ）
+  const scopedConfirmations = useMemo(() => {
+    if (currentFacilityId === null) {
+      // 全施設：date 単位で「すべての施設で確定」を AND 集計
+      const result: typeof confirmations = {};
+      Object.entries(confirmations).forEach(([key, val]) => {
+        const date = key.includes("_") ? key.split("_")[1] : key;
+        if (!result[date]) result[date] = { breakfast: true, lunch: true, dinner: true };
+        result[date] = {
+          breakfast: result[date].breakfast && !!val.breakfast,
+          lunch: result[date].lunch && !!val.lunch,
+          dinner: result[date].dinner && !!val.dinner,
+        };
+      });
+      return result;
+    }
+    const result: typeof confirmations = {};
+    Object.entries(confirmations).forEach(([key, val]) => {
+      if (key.startsWith(`${currentFacilityId}_`)) {
+        result[key.split("_")[1]] = val;
+      }
+    });
+    return result;
+  }, [confirmations, currentFacilityId]);
 
   const counts = useMemo(
-    () => buildMonthMealCounts(year, month, users, singleCancellations, confirmations),
-    [year, month, users, singleCancellations, confirmations],
+    () => buildMonthMealCounts(year, month, users, singleCancellations, scopedConfirmations),
+    [year, month, users, singleCancellations, scopedConfirmations],
   );
   const total = monthTotal(counts);
 

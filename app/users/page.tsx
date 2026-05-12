@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { totalOf, jpy, emptyUserDraft, emptyBilling, type User } from "@/lib/data";
-import { useUsers, logActivity, genId } from "@/lib/store";
+import { useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
@@ -14,25 +15,30 @@ const careLevels = ["自立", "要支援1", "要支援2", "要介護1", "要介�
 
 export default function UsersPage() {
   const [users, setUsers] = useUsers();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [newOpen, setNewOpen] = useState(false);
-  const [draft, setDraft] = useState<Omit<User, "id">>(emptyUserDraft());
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
+  const [draft, setDraft] = useState<Omit<User, "id">>(emptyUserDraft(defaultFacilityId));
 
-  const list = useMemo(() => users.filter((u) => {
+  const scopedUsers = useMemo(() => filterByFacility(users, currentFacilityId), [users, currentFacilityId]);
+
+  const list = useMemo(() => scopedUsers.filter((u) => {
     if (filter === "active" && u.status !== "入居中") return false;
     if (filter === "hospital" && u.status !== "入院中") return false;
     if (filter === "away" && !["外泊中", "一時帰宅"].includes(u.status)) return false;
     if (filter === "left" && u.status !== "退去済") return false;
     if (q && !`${u.name}${u.kana}${u.room}`.includes(q)) return false;
     return true;
-  }), [users, filter, q]);
+  }), [scopedUsers, filter, q]);
 
   const counts = {
-    active: users.filter((u) => u.status === "入居中").length,
-    hospital: users.filter((u) => u.status === "入院中").length,
-    overnight: users.filter((u) => u.status === "外泊中").length,
-    homeVisit: users.filter((u) => u.status === "一時帰宅").length,
+    active: scopedUsers.filter((u) => u.status === "入居中").length,
+    hospital: scopedUsers.filter((u) => u.status === "入院中").length,
+    overnight: scopedUsers.filter((u) => u.status === "外泊中").length,
+    homeVisit: scopedUsers.filter((u) => u.status === "一時帰宅").length,
   };
 
   function exportCsv() {
@@ -52,12 +58,13 @@ export default function UsersPage() {
       return;
     }
     const id = genId("U");
-    const user: User = { ...draft, id, monthlyBilling: emptyBilling() };
+    const user: User = { ...draft, id, facilityId: draft.facilityId ?? defaultFacilityId, monthlyBilling: emptyBilling() };
     setUsers((cur) => [...cur, user]);
-    logActivity(`利用者「${draft.name}」を登録`);
+    const facility = facilities.find((f) => f.id === user.facilityId);
+    logActivity(`利用者「${draft.name}」を登録${facility ? `（${facility.name}）` : ""}`);
     toast("利用者を登録しました", "ok");
     setNewOpen(false);
-    setDraft(emptyUserDraft());
+    setDraft(emptyUserDraft(defaultFacilityId));
   }
 
   return (
@@ -72,7 +79,7 @@ export default function UsersPage() {
         <div className="flex gap-2 no-print">
           <button onClick={exportCsv} className="btn" disabled={users.length === 0}>CSV出力</button>
           <button onClick={doPrint} className="btn">印刷</button>
-          <button onClick={() => { setDraft(emptyUserDraft()); setNewOpen(true); }} className="btn btn-primary">＋ 新規利用者</button>
+          <button onClick={() => { setDraft(emptyUserDraft(defaultFacilityId)); setNewOpen(true); }} className="btn btn-primary">＋ 新規利用者</button>
         </div>
       </header>
 
@@ -125,7 +132,10 @@ export default function UsersPage() {
               <tr key={u.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
                 <td className="px-3 py-3 num font-semibold text-ink-900">{u.room}</td>
                 <td className="px-3 py-3">
-                  <div className="font-medium text-ink-900">{u.name}</div>
+                  <div className="font-medium text-ink-900 flex items-center gap-2">
+                    {u.name}
+                    {currentFacilityId === null && <FacilityLabel facilityId={u.facilityId} />}
+                  </div>
                   <div className="text-[11px] text-ink-500">{u.kana} ・ {u.gender} {u.age}歳</div>
                 </td>
                 <td className="px-3 py-3"><StatusBadge s={u.status} /></td>
@@ -165,6 +175,12 @@ export default function UsersPage() {
           <Field label="性別">
             <Select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as User["gender"] })}>
               <option>女</option><option>男</option><option>その他</option>
+            </Select>
+          </Field>
+          <Field label="施設">
+            <Select value={draft.facilityId ?? ""} onChange={(e) => setDraft({ ...draft, facilityId: e.target.value || undefined })}>
+              {facilities.length === 0 && <option value="">— 未登録（マスタから施設を追加してください）—</option>}
+              {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </Select>
           </Field>
           <Field label="部屋（半角英数字）" hint="例：101 / A2 / 2F-3 など">

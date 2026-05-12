@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { type StaffMember } from "@/lib/data";
-import { useStaff, useFacility, logActivity, genId } from "@/lib/store";
+import { useStaff, useFacilities, logActivity, genId } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
@@ -23,8 +23,8 @@ const PERMISSIONS = [
 
 type Draft = Omit<StaffMember, "id" | "role" | "lastLogin">;
 
-function emptyDraft(facilityName: string): Draft {
-  return { name: "", roleId: "office", email: "", facility: facilityName, active: true };
+function emptyDraft(facilityIds: string[], facilityLabel: string): Draft {
+  return { name: "", roleId: "office", email: "", facilityIds, facility: facilityLabel, active: true };
 }
 
 function roleNameOf(id: StaffMember["roleId"]) {
@@ -33,13 +33,15 @@ function roleNameOf(id: StaffMember["roleId"]) {
 
 export default function StaffPage() {
   const [staff, setStaff] = useStaff();
-  const [facility] = useFacility();
+  const [facilities] = useFacilities();
+  const allFacilityIds = facilities.map((f) => f.id);
+  const facilityLabel = facilities.map((f) => f.name).join("・") || "—";
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
   const [editing, setEditing] = useState<StaffMember | null>(null);
-  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft(facility.name));
+  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft(allFacilityIds, facilityLabel));
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [addDraft, setAddDraft] = useState<Draft>(emptyDraft(facility.name));
+  const [addDraft, setAddDraft] = useState<Draft>(emptyDraft(allFacilityIds, facilityLabel));
 
   const list = useMemo(() => staff.filter((s) => filter === "all" ? true : filter === "active" ? s.active : !s.active), [staff, filter]);
   const roleCounts = useMemo(() => {
@@ -50,8 +52,13 @@ export default function StaffPage() {
 
   function exportCsv() {
     downloadCsv("職員一覧.csv", [
-      ["職員ID", "氏名", "ロール", "メール", "所属", "状態", "最終ログイン"],
-      ...staff.map((s) => [s.id, s.name, s.role, s.email, s.facility, s.active ? "有効" : "無効", s.lastLogin]),
+      ["職員ID", "氏名", "ロール", "メール", "所属施設", "状態", "最終ログイン"],
+      ...staff.map((s) => {
+        const facilityNames = (s.facilityIds && s.facilityIds.length > 0)
+          ? s.facilityIds.map((id) => facilities.find((f) => f.id === id)?.name ?? "—").join("・")
+          : s.facility;
+        return [s.id, s.name, s.role, s.email, facilityNames, s.active ? "有効" : "無効", s.lastLogin];
+      }),
     ]);
   }
 
@@ -69,12 +76,12 @@ export default function StaffPage() {
     }
     setStaff((cur) => [
       ...cur,
-      { id: genId("S"), name: addDraft.name, roleId: addDraft.roleId, role: roleNameOf(addDraft.roleId), email: addDraft.email, facility: addDraft.facility, active: addDraft.active, lastLogin: "—" },
+      { id: genId("S"), name: addDraft.name, roleId: addDraft.roleId, role: roleNameOf(addDraft.roleId), email: addDraft.email, facilityIds: addDraft.facilityIds, facility: addDraft.facility, active: addDraft.active, lastLogin: "—" },
     ]);
     logActivity(`職員「${addDraft.name}」を追加`);
     toast("職員を追加しました", "ok");
     setAddOpen(false);
-    setAddDraft(emptyDraft(facility.name));
+    setAddDraft(emptyDraft(allFacilityIds, facilityLabel));
   }
 
   function saveEdit() {
@@ -84,7 +91,7 @@ export default function StaffPage() {
       return;
     }
     setStaff((cur) => cur.map((s) => s.id === editing.id
-      ? { ...s, name: editDraft.name, roleId: editDraft.roleId, role: roleNameOf(editDraft.roleId), email: editDraft.email, facility: editDraft.facility, active: editDraft.active }
+      ? { ...s, name: editDraft.name, roleId: editDraft.roleId, role: roleNameOf(editDraft.roleId), email: editDraft.email, facilityIds: editDraft.facilityIds, facility: editDraft.facility, active: editDraft.active }
       : s
     ));
     logActivity(`職員「${editDraft.name}」を更新`);
@@ -111,7 +118,7 @@ export default function StaffPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={exportCsv} className="btn" disabled={staff.length === 0}>CSV エクスポート</button>
-          <button onClick={() => { setAddDraft(emptyDraft(facility.name)); setAddOpen(true); }} className="btn btn-primary">＋ 職員追加</button>
+          <button onClick={() => { setAddDraft(emptyDraft(allFacilityIds, facilityLabel)); setAddOpen(true); }} className="btn btn-primary">＋ 職員追加</button>
         </div>
       </header>
 
@@ -179,11 +186,15 @@ export default function StaffPage() {
                     <td className="px-3 py-2.5 font-medium text-ink-900">{s.name}</td>
                     <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.role}</td>
                     <td className="px-3 py-2.5 text-[12px] text-ink-600">{s.email}</td>
-                    <td className="px-3 py-2.5 text-[12px] text-ink-700">{s.facility}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-ink-700">
+                      {(s.facilityIds && s.facilityIds.length > 0)
+                        ? s.facilityIds.map((id) => facilities.find((f) => f.id === id)?.name ?? "—").join("・")
+                        : s.facility}
+                    </td>
                     <td className="px-3 py-2.5 num text-[11px] text-ink-500">{s.lastLogin}</td>
                     <td className="px-3 py-2.5 text-center"><Pill tone={s.active ? "ok" : "neutral"}>{s.active ? "有効" : "無効"}</Pill></td>
                     <td className="px-3 py-2.5 text-center flex gap-1 justify-center">
-                      <button onClick={() => { setEditDraft({ name: s.name, roleId: s.roleId, email: s.email, facility: s.facility, active: s.active }); setEditing(s); }} className="btn btn-sm">編集</button>
+                      <button onClick={() => { setEditDraft({ name: s.name, roleId: s.roleId, email: s.email, facilityIds: s.facilityIds ?? allFacilityIds, facility: s.facility, active: s.active }); setEditing(s); }} className="btn btn-sm">編集</button>
                       <button onClick={() => toggleActive(s.id)} className="btn btn-sm">{s.active ? "無効化" : "有効化"}</button>
                     </td>
                   </tr>
@@ -205,7 +216,7 @@ export default function StaffPage() {
         title="職員を追加"
         footer={<ModalFooter onCancel={() => setAddOpen(false)} onConfirm={addStaff} confirmLabel="追加" />}
       >
-        <StaffForm draft={addDraft} setDraft={setAddDraft} />
+        <StaffForm draft={addDraft} setDraft={setAddDraft} facilities={facilities} />
       </Modal>
 
       <Modal
@@ -225,7 +236,7 @@ export default function StaffPage() {
           />
         }
       >
-        {editing && <StaffForm draft={editDraft} setDraft={setEditDraft} />}
+        {editing && <StaffForm draft={editDraft} setDraft={setEditDraft} facilities={facilities} />}
       </Modal>
 
       <Modal
@@ -247,21 +258,38 @@ export default function StaffPage() {
   );
 }
 
-function StaffForm({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => void }) {
+function StaffForm({ draft, setDraft, facilities }: { draft: Draft; setDraft: (d: Draft) => void; facilities: { id: string; name: string }[] }) {
+  function toggleFacility(id: string) {
+    const cur = draft.facilityIds ?? [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const label = next.map((fid) => facilities.find((f) => f.id === fid)?.name ?? "—").join("・") || "—";
+    setDraft({ ...draft, facilityIds: next, facility: label });
+  }
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <Field label="氏名（必須）"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
-      <Field label="ロール">
-        <Select value={draft.roleId} onChange={(e) => setDraft({ ...draft, roleId: e.target.value as StaffMember["roleId"] })}>
-          {ROLES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </Select>
-      </Field>
-      <Field label="メール（必須）"><Input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></Field>
-      <Field label="所属"><Input value={draft.facility} onChange={(e) => setDraft({ ...draft, facility: e.target.value })} /></Field>
-      <Field label="状態">
-        <Select value={draft.active ? "1" : "0"} onChange={(e) => setDraft({ ...draft, active: e.target.value === "1" })}>
-          <option value="1">有効</option><option value="0">無効</option>
-        </Select>
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="氏名（必須）"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
+        <Field label="ロール">
+          <Select value={draft.roleId} onChange={(e) => setDraft({ ...draft, roleId: e.target.value as StaffMember["roleId"] })}>
+            {ROLES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="メール（必須）"><Input type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></Field>
+        <Field label="状態">
+          <Select value={draft.active ? "1" : "0"} onChange={(e) => setDraft({ ...draft, active: e.target.value === "1" })}>
+            <option value="1">有効</option><option value="0">無効</option>
+          </Select>
+        </Field>
+      </div>
+      <Field label="アクセス可能な施設（複数選択）">
+        <div className="flex flex-wrap gap-2">
+          {facilities.map((f) => (
+            <label key={f.id} className="flex items-center gap-1.5 px-2 py-1 border border-ink-200 rounded text-[12px]">
+              <input type="checkbox" checked={(draft.facilityIds ?? []).includes(f.id)} onChange={() => toggleFacility(f.id)} />
+              {f.name}
+            </label>
+          ))}
+        </div>
       </Field>
     </div>
   );

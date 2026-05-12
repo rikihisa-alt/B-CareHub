@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useGoods, logActivity, genId } from "@/lib/store";
+import { useGoods, useFacilities, useCurrentFacilityId, logActivity, genId, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { type DailyGood } from "@/lib/data";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -17,7 +18,11 @@ function emptyDraft(): Draft {
 }
 
 export default function GoodsPage() {
-  const [goods, setGoods] = useGoods();
+  const [allGoods, setGoods] = useGoods();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const goods = useMemo(() => filterByFacility(allGoods, currentFacilityId), [allGoods, currentFacilityId]);
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [orderOpen, setOrderOpen] = useState(false);
@@ -49,7 +54,7 @@ export default function GoodsPage() {
       return;
     }
     const id = genId("G");
-    setGoods((cur) => [...cur, { id, ...newDraft }]);
+    setGoods((cur) => [...cur, { id, facilityId: defaultFacilityId, ...newDraft }]);
     logActivity(`日用品「${newDraft.name}」を登録`);
     toast("商品を登録しました", "ok");
     setNewOpen(false);
@@ -134,7 +139,12 @@ export default function GoodsPage() {
                 const low = g.stock < g.min;
                 return (
                   <tr key={g.id} className={"border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60 " + (low ? "bg-warn-50/30" : "")}>
-                    <td className="px-3 py-2.5 font-medium text-ink-900">{g.name}</td>
+                    <td className="px-3 py-2.5 font-medium text-ink-900">
+                      <div className="flex items-center gap-2">
+                        {g.name}
+                        {currentFacilityId === null && <FacilityLabel facilityId={g.facilityId} />}
+                      </div>
+                    </td>
                     <td className="px-3 py-2.5 text-ink-600 text-[12px]">{g.cat}</td>
                     <td className="px-3 py-2.5 text-ink-700 text-[12px]">{g.supplier || "—"}</td>
                     <td className="px-3 py-2.5 text-right num">¥{g.price}</td>

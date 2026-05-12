@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { totalOf, jpy } from "@/lib/data";
-import { useUsers, useBillingConfirmations, logActivity, todayIso } from "@/lib/store";
+import { useUsers, useBillingConfirmations, useCurrentFacilityId, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
@@ -11,7 +12,9 @@ import { Pill, Th, ModalFooter } from "@/components/ui/primitives";
 type BillingKey = "rent" | "common" | "utility" | "admin" | "meal" | "goods" | "care" | "nursing" | "advance" | "other";
 
 export default function BillingPage() {
-  const [users] = useUsers();
+  const [allUsers] = useUsers();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
   const [confirmations, setConfirmations] = useBillingConfirmations();
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -101,7 +104,12 @@ export default function BillingPage() {
                 return (
                   <tr key={u.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
                     <td className="px-2 py-2.5 num font-semibold text-ink-900">{u.room}</td>
-                    <td className="px-2 py-2.5"><Link href={`/users/${u.id}`} className="hover:underline text-brand-700">{u.name}</Link></td>
+                    <td className="px-2 py-2.5">
+                      <span className="flex items-center gap-2">
+                        <Link href={`/users/${u.id}`} className="hover:underline text-brand-700">{u.name}</Link>
+                        {currentFacilityId === null && <FacilityLabel facilityId={u.facilityId} />}
+                      </span>
+                    </td>
                     <NumCell v={b.rent} /><NumCell v={b.common} /><NumCell v={b.utility} /><NumCell v={b.admin} />
                     <NumCell v={b.meal} /><NumCell v={b.goods} /><NumCell v={b.care} /><NumCell v={b.nursing} /><NumCell v={b.advance} /><NumCell v={b.other} />
                     <td className="px-2 py-2.5 text-right num font-bold text-brand-700">{jpy(total)}</td>

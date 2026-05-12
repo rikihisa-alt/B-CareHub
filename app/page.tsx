@@ -7,7 +7,8 @@ import {
 } from "@/lib/data";
 import {
   useUsers, useTasks, useHandovers, useActivities, useGoods, useDocuments,
-  useMealConfirmations, useSingleCancellations, useFacility, logActivity, genId, todayIso,
+  useMealConfirmations, useSingleCancellations, useFacilities, useCurrentFacilityId,
+  logActivity, genId, todayIso, filterByFacility,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -16,22 +17,54 @@ import {
 } from "@/components/ui/primitives";
 
 export default function DashboardPage() {
-  const [users, setUsers] = useUsers();
-  const [tasks, setTasks] = useTasks();
-  const [handovers] = useHandovers();
+  const [allUsers, setUsers] = useUsers();
+  const [allTasks, setTasks] = useTasks();
+  const [allHandovers] = useHandovers();
   const [activities] = useActivities();
-  const [goods] = useGoods();
-  const [documents] = useDocuments();
+  const [allGoods] = useGoods();
+  const [allDocuments] = useDocuments();
   const [confirmations, setConfirmations] = useMealConfirmations();
   const [singleCancellations] = useSingleCancellations();
-  const [facility] = useFacility();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+
+  // 施設フィルタ
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+  const tasks = useMemo(() => filterByFacility(allTasks, currentFacilityId), [allTasks, currentFacilityId]);
+  const handovers = useMemo(() => filterByFacility(allHandovers, currentFacilityId), [allHandovers, currentFacilityId]);
+  const goods = useMemo(() => filterByFacility(allGoods, currentFacilityId), [allGoods, currentFacilityId]);
+  const documents = useMemo(() => filterByFacility(allDocuments, currentFacilityId), [allDocuments, currentFacilityId]);
 
   const today = todayIso();
   const [yYear, yMonth] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
 
+  // 施設フィルタを適用したキー変換
+  const scopedConfirmations = useMemo(() => {
+    if (currentFacilityId === null) {
+      const result: typeof confirmations = {};
+      Object.entries(confirmations).forEach(([key, val]) => {
+        const date = key.includes("_") ? key.split("_")[1] : key;
+        if (!result[date]) result[date] = { breakfast: true, lunch: true, dinner: true };
+        result[date] = {
+          breakfast: result[date].breakfast && !!val.breakfast,
+          lunch: result[date].lunch && !!val.lunch,
+          dinner: result[date].dinner && !!val.dinner,
+        };
+      });
+      return result;
+    }
+    const result: typeof confirmations = {};
+    Object.entries(confirmations).forEach(([key, val]) => {
+      if (key.startsWith(`${currentFacilityId}_`)) {
+        result[key.split("_")[1]] = val;
+      }
+    });
+    return result;
+  }, [confirmations, currentFacilityId]);
+
   const counts = useMemo(
-    () => buildMonthMealCounts(yYear, yMonth, users, singleCancellations, confirmations),
-    [yYear, yMonth, users, singleCancellations, confirmations],
+    () => buildMonthMealCounts(yYear, yMonth, users, singleCancellations, scopedConfirmations),
+    [yYear, yMonth, users, singleCancellations, scopedConfirmations],
   );
   const todayRow = counts.find((c) => c.date === today) ?? counts[0];
   const todayIdx = counts.findIndex((c) => c.date === today);
@@ -41,8 +74,16 @@ export default function DashboardPage() {
   const hospital = users.filter((u) => u.status === "入院中").length;
   const overnight = users.filter((u) => u.status === "外泊中").length;
   const homeVisit = users.filter((u) => u.status === "一時帰宅").length;
-  const capacity = facility.capacity ?? 16;
+
+  // 定員：選択中の施設 / 全施設なら合算
+  const capacity = currentFacilityId === null
+    ? facilities.reduce((s, f) => s + (f.capacity ?? 0), 0)
+    : facilities.find((f) => f.id === currentFacilityId)?.capacity ?? 0;
   const vacancy = capacity - users.filter((u) => u.status !== "退去済").length;
+
+  const facilityName = currentFacilityId === null
+    ? "全施設"
+    : facilities.find((f) => f.id === currentFacilityId)?.name ?? "未選択";
 
   const totalBilling = users.reduce((s, u) => s + totalOf(u), 0);
   const tasksUrgent = tasks.filter((t) => t.priority === "高" && t.status !== "完了").length;
@@ -71,7 +112,12 @@ export default function DashboardPage() {
   });
 
   function doConfirm(type: "breakfast" | "lunch" | "dinner") {
-    setConfirmations((cur) => ({ ...cur, [today]: { ...cur[today], [type]: true } }));
+    if (currentFacilityId === null) {
+      toast("施設を選択してから確定してください", "warn");
+      return;
+    }
+    const key = `${currentFacilityId}_${today}`;
+    setConfirmations((cur) => ({ ...cur, [key]: { ...cur[key], [type]: true } }));
     const label = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" }[type];
     logActivity(`本日の${label}発注を確定しました`);
     toast(`本日の${label}発注を確定しました`, "ok");
@@ -83,10 +129,11 @@ export default function DashboardPage() {
       toast("タスク名を入力してください", "warn");
       return;
     }
-    const u = users.find((x) => x.id === newTask.userId);
+    const u = allUsers.find((x) => x.id === newTask.userId);
     const id = genId("T");
+    const facilityId = u?.facilityId ?? currentFacilityId ?? facilities[0]?.id;
     setTasks((cur) => [
-      { id, title: newTask.title, category: "その他", userId: newTask.userId || undefined, userName: u?.name, assignee: "田中 太郎", due: newTask.due, priority: newTask.priority, status: "未対応" },
+      { id, facilityId, title: newTask.title, category: "その他", userId: newTask.userId || undefined, userName: u?.name, assignee: "田中 太郎", due: newTask.due, priority: newTask.priority, status: "未対応" },
       ...cur,
     ]);
     logActivity(`タスク「${newTask.title}」を追加`);
@@ -111,7 +158,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-[22px] font-semibold text-ink-900">ダッシュボード</h1>
-        <p className="text-[12px] text-ink-500 mt-0.5">{today.replace(/-/g, "/")} ／ {facility.name}</p>
+        <p className="text-[12px] text-ink-500 mt-0.5">{today.replace(/-/g, "/")} ／ {facilityName}</p>
       </header>
 
       {users.length === 0 && <SetupGuide />}

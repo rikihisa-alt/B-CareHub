@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { type Task } from "@/lib/data";
-import { useTasks, useUsers, logActivity, genId, todayIso } from "@/lib/store";
+import { useTasks, useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, todayIso, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
@@ -11,8 +12,13 @@ import { PriorityPill, FilterChip, Field, Input, Select, Th, ModalFooter } from 
 type Filter = "all" | "open" | "active" | "done" | "overdue";
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useTasks();
-  const [users] = useUsers();
+  const [allTasks, setTasks] = useTasks();
+  const [allUsers] = useUsers();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const tasks = useMemo(() => filterByFacility(allTasks, currentFacilityId), [allTasks, currentFacilityId]);
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
   const today = todayIso();
 
   const [filter, setFilter] = useState<Filter>("open");
@@ -50,8 +56,9 @@ export default function TasksPage() {
       toast("タスク名を入力してください", "warn");
       return;
     }
-    const user = users.find((u) => u.id === draft.userId);
-    setTasks((cur) => [{ id: genId("T"), ...draft, userName: user?.name }, ...cur]);
+    const user = allUsers.find((u) => u.id === draft.userId);
+    const facilityId = user?.facilityId ?? defaultFacilityId;
+    setTasks((cur) => [{ id: genId("T"), facilityId, ...draft, userName: user?.name }, ...cur]);
     logActivity(`タスク「${draft.title}」を追加`);
     toast("タスクを追加しました", "ok");
     setAddOpen(false);
@@ -104,7 +111,12 @@ export default function TasksPage() {
               {list.map((t) => (
                 <tr key={t.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
                   <td className="px-3 py-2.5"><PriorityPill p={t.priority} /></td>
-                  <td className="px-3 py-2.5 text-ink-900 font-medium">{t.title}</td>
+                  <td className="px-3 py-2.5 text-ink-900 font-medium">
+                    <div className="flex items-center gap-2">
+                      {t.title}
+                      {currentFacilityId === null && <FacilityLabel facilityId={t.facilityId} />}
+                    </div>
+                  </td>
                   <td className="px-3 py-2.5 text-[12px] text-ink-700">{t.category}</td>
                   <td className="px-3 py-2.5 text-[12px]">
                     {t.userId ? <Link href={`/users/${t.userId}`} className="text-brand-700 hover:underline">{t.userName} 様</Link> : <span className="text-ink-400">—</span>}

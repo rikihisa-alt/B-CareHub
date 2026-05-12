@@ -27,6 +27,7 @@ export type RegularCancel = {
 
 export type User = {
   id: string;
+  facilityId?: string;
   name: string;
   kana: string;
   room: string;
@@ -73,6 +74,7 @@ export type BillingBreakdown = {
 
 export type Task = {
   id: string;
+  facilityId?: string;
   title: string;
   category: "請求" | "ケア" | "書類" | "連絡" | "棚卸" | "その他";
   userId?: string;
@@ -85,6 +87,7 @@ export type Task = {
 
 export type Handover = {
   id: string;
+  facilityId?: string;
   at: string;
   staff: string;
   userId?: string;
@@ -95,6 +98,7 @@ export type Handover = {
 
 export type Announcement = {
   id: string;
+  facilityId?: string; // null = 全施設
   title: string;
   body: string;
   postedBy: string;
@@ -111,6 +115,7 @@ export type Activity = {
 
 export type DailyGood = {
   id: string;
+  facilityId?: string;
   name: string;
   cat: string;
   supplier: string;
@@ -123,6 +128,7 @@ export type DailyGood = {
 
 export type DocItem = {
   id: string;
+  facilityId?: string;
   userId?: string;
   userName: string;
   doc: string;
@@ -136,7 +142,8 @@ export type StaffMember = {
   roleId: "admin" | "office" | "field" | "view";
   role: string;
   email: string;
-  facility: string;
+  facilityIds: string[]; // アクセス可能な施設ID
+  facility: string; // 表示用ラベル（互換）
   active: boolean;
   lastLogin: string;
 };
@@ -392,8 +399,9 @@ export function buildDayDetail(
 
 // ========= 利用者の雛形ファクトリ =========
 
-export function emptyUserDraft(): Omit<User, "id"> {
+export function emptyUserDraft(facilityId?: string): Omit<User, "id"> {
   return {
+    facilityId,
     name: "", kana: "", room: "", birthday: "", age: 0, gender: "女",
     status: "入居中", moveInDate: "",
     careLevel: "要介護1",

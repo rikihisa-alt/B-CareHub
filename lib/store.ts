@@ -6,16 +6,15 @@ import type {
 } from "./data";
 
 export type Facility = {
+  id: string;
   name: string;
   address?: string;
   phone?: string;
   capacity?: number;
 };
 
-// localStorage キーの prefix（バージョン管理用）
+// localStorage キーの prefix
 const PREFIX = "bch:v1:";
-
-// ========= 低レベル read/write =========
 
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -31,18 +30,10 @@ function save<T>(key: string, value: T): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {
-    // クォータ超過などは無視
-  }
+  } catch {}
 }
 
-// ========= 汎用ストアフック =========
-
-/**
- * localStorage に永続化される useState。
- * 初回描画は initial（SSR/ハイドレーション衝突回避）、
- * マウント後に localStorage の値で置き換わる。
- */
+/** 任意のキーに対する localStorage 永続化 useState */
 export function useStored<T>(key: string, initial: T) {
   const [state, setState] = useState<T>(initial);
   const [hydrated, setHydrated] = useState(false);
@@ -64,40 +55,32 @@ export function useStored<T>(key: string, initial: T) {
   return [state, update, hydrated] as const;
 }
 
-// ========= 個別エンティティのフック =========
+// ========= 施設（複数） =========
 
-export function useUsers() {
-  return useStored<User[]>("users", []);
+const DEFAULT_FACILITY_ID = "F-001";
+
+export function useFacilities() {
+  return useStored<Facility[]>("facilities", [{ id: DEFAULT_FACILITY_ID, name: "施設1", capacity: 16 }]);
 }
 
-export function useTasks() {
-  return useStored<Task[]>("tasks", []);
+/** 現在選択中の施設 ID（null = 全施設） */
+export function useCurrentFacilityId() {
+  return useStored<string | null>("currentFacilityId", DEFAULT_FACILITY_ID);
 }
 
-export function useHandovers() {
-  return useStored<Handover[]>("handovers", []);
-}
+// ========= 各エンティティのフック =========
 
-export function useAnnouncements() {
-  return useStored<Announcement[]>("announcements", []);
-}
-
-export function useGoods() {
-  return useStored<DailyGood[]>("goods", []);
-}
-
-export function useDocuments() {
-  return useStored<DocItem[]>("documents", []);
-}
-
+export function useUsers() { return useStored<User[]>("users", []); }
+export function useTasks() { return useStored<Task[]>("tasks", []); }
+export function useHandovers() { return useStored<Handover[]>("handovers", []); }
+export function useAnnouncements() { return useStored<Announcement[]>("announcements", []); }
+export function useGoods() { return useStored<DailyGood[]>("goods", []); }
+export function useDocuments() { return useStored<DocItem[]>("documents", []); }
 export function useMealConfirmations() {
+  // key: `${facilityId}_${date}`
   return useStored<Record<string, MealConfirmation>>("mealConfirmations", {});
 }
-
-export function useSingleCancellations() {
-  return useStored<SingleCancellation[]>("singleCancellations", []);
-}
-
+export function useSingleCancellations() { return useStored<SingleCancellation[]>("singleCancellations", []); }
 export function useBillingConfirmations() {
   // key: `${userId}_${year}-${month}`
   return useStored<Record<string, boolean>>("billingConfirmations", {});
@@ -105,20 +88,14 @@ export function useBillingConfirmations() {
 
 export function useStaff() {
   const initial: StaffMember[] = [
-    { id: "S001", name: "田中 太郎", roleId: "office", role: "事務担当", email: "tanaka@example.com", facility: "—", active: true, lastLogin: "—" },
+    { id: "S001", name: "田中 太郎", roleId: "office", role: "事務担当", email: "tanaka@example.com", facilityIds: [DEFAULT_FACILITY_ID], facility: "—", active: true, lastLogin: "—" },
   ];
   return useStored<StaffMember[]>("staff", initial);
 }
 
-export function useFacility() {
-  return useStored<Facility>("facility", { name: "あすか苑", capacity: 16 });
-}
-
 // ========= アクティビティログ =========
 
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
+function pad(n: number) { return String(n).padStart(2, "0"); }
 
 export function logActivity(message: string, staff: string = "田中 太郎") {
   if (typeof window === "undefined") return;
@@ -132,9 +109,7 @@ export function logActivity(message: string, staff: string = "田中 太郎") {
   save("activities", next);
 }
 
-export function useActivities() {
-  return useStored<Activity[]>("activities", []);
-}
+export function useActivities() { return useStored<Activity[]>("activities", []); }
 
 // ========= ユーティリティ =========
 
@@ -152,7 +127,13 @@ export function todayIso(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** 全データ削除（マスタ管理から呼び出し可能） */
+/** 施設フィルタを掛ける汎用関数 */
+export function filterByFacility<T extends { facilityId?: string | null }>(items: T[], facilityId: string | null): T[] {
+  if (!facilityId) return items; // 全施設
+  return items.filter((x) => !x.facilityId || x.facilityId === facilityId);
+}
+
+/** 全データ削除 */
 export function clearAllData() {
   if (typeof window === "undefined") return;
   const keys: string[] = [];
@@ -163,24 +144,18 @@ export function clearAllData() {
   keys.forEach((k) => localStorage.removeItem(k));
 }
 
-/** データのエクスポート（JSON） */
 export function exportAllData(): string {
   if (typeof window === "undefined") return "{}";
   const out: Record<string, unknown> = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (k && k.startsWith(PREFIX)) {
-      try {
-        out[k.slice(PREFIX.length)] = JSON.parse(localStorage.getItem(k) ?? "null");
-      } catch {
-        // skip
-      }
+      try { out[k.slice(PREFIX.length)] = JSON.parse(localStorage.getItem(k) ?? "null"); } catch {}
     }
   }
   return JSON.stringify(out, null, 2);
 }
 
-/** エクスポートした JSON をインポート */
 export function importAllData(json: string): boolean {
   if (typeof window === "undefined") return false;
   try {

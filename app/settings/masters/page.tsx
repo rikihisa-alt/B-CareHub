@@ -4,7 +4,10 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { Field, Input, ModalFooter } from "@/components/ui/primitives";
-import { clearAllData, exportAllData, importAllData, logActivity, useFacility, type Facility } from "@/lib/store";
+import {
+  clearAllData, exportAllData, importAllData, logActivity, genId,
+  useFacilities, useCurrentFacilityId, type Facility,
+} from "@/lib/store";
 
 const CATEGORIES = [
   { group: "食事", items: [
@@ -28,11 +31,22 @@ const CATEGORIES = [
   ]},
 ];
 
+type FacilityDraft = Omit<Facility, "id">;
+
+function emptyFacilityDraft(): FacilityDraft {
+  return { name: "", capacity: 16 };
+}
+
 export default function MastersPage() {
-  const [facility, setFacility] = useFacility();
+  const [facilities, setFacilities] = useFacilities();
+  const [currentFacilityId, setCurrentFacilityId] = useCurrentFacilityId();
+
+  const [addFacilityOpen, setAddFacilityOpen] = useState(false);
+  const [addDraft, setAddDraft] = useState<FacilityDraft>(emptyFacilityDraft());
+  const [editingFacility, setEditingFacility] = useState<Facility | null>(null);
+  const [editDraft, setEditDraft] = useState<Facility | null>(null);
+
   const [editing, setEditing] = useState<string | null>(null);
-  const [facilityOpen, setFacilityOpen] = useState(false);
-  const [facilityDraft, setFacilityDraft] = useState<Facility>(facility);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -83,20 +97,37 @@ export default function MastersPage() {
     setTimeout(() => window.location.reload(), 800);
   }
 
-  function saveFacility() {
-    if (!facilityDraft.name.trim()) {
-      toast("施設名を入力してください", "warn");
-      return;
-    }
-    setFacility(facilityDraft);
-    logActivity(`施設情報を更新（${facilityDraft.name}）`);
-    toast("施設情報を保存しました", "ok");
-    setFacilityOpen(false);
+  function addFacility() {
+    if (!addDraft.name.trim()) { toast("施設名を入力してください", "warn"); return; }
+    const id = genId("F");
+    setFacilities((cur) => [...cur, { id, ...addDraft }]);
+    logActivity(`施設「${addDraft.name}」を追加`);
+    toast("施設を追加しました", "ok");
+    setAddFacilityOpen(false);
+    setAddDraft(emptyFacilityDraft());
   }
 
-  function openFacility() {
-    setFacilityDraft(facility);
-    setFacilityOpen(true);
+  function saveFacility() {
+    if (!editDraft) return;
+    if (!editDraft.name.trim()) { toast("施設名を入力してください", "warn"); return; }
+    setFacilities((cur) => cur.map((f) => f.id === editDraft.id ? editDraft : f));
+    logActivity(`施設「${editDraft.name}」を更新`);
+    toast("施設情報を保存しました", "ok");
+    setEditingFacility(null);
+    setEditDraft(null);
+  }
+
+  function removeFacility(id: string) {
+    const f = facilities.find((x) => x.id === id);
+    if (!f) return;
+    if (facilities.length <= 1) { toast("最低 1 つの施設が必要です", "warn"); return; }
+    if (!window.confirm(`施設「${f.name}」を削除します。所属する利用者やデータは残ります（再割当が必要）。よろしいですか？`)) return;
+    setFacilities((cur) => cur.filter((x) => x.id !== id));
+    if (currentFacilityId === id) setCurrentFacilityId(null);
+    logActivity(`施設「${f.name}」を削除`);
+    toast("施設を削除しました", "ok");
+    setEditingFacility(null);
+    setEditDraft(null);
   }
 
   return (
@@ -104,7 +135,7 @@ export default function MastersPage() {
       <header className="flex items-end justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">マスタ・データ管理</h1>
-          <p className="text-[12px] text-ink-500 mt-0.5">業務マスタの編集と、データのバックアップ／復元／初期化。</p>
+          <p className="text-[12px] text-ink-500 mt-0.5">施設・業務マスタの編集と、データのバックアップ／復元／初期化。</p>
         </div>
         <div className="flex gap-2">
           <button onClick={openExport} className="btn">バックアップ書出</button>
@@ -119,20 +150,51 @@ export default function MastersPage() {
         運用データはこの端末のブラウザに保存されます。定期的にバックアップを推奨します。
       </div>
 
-      {/* 施設情報（独立カード・編集可） */}
+      {/* 施設一覧（複数管理） */}
       <section>
-        <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider mb-2">施設情報</h2>
-        <div className="card p-4">
-          <div className="flex items-start justify-between gap-4">
-            <dl className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[13px] flex-1">
-              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">施設名</dt><dd className="col-span-2 font-semibold text-ink-900">{facility.name || <span className="text-ink-400">未設定</span>}</dd></div>
-              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">定員</dt><dd className="col-span-2 num">{facility.capacity ?? "—"} 室</dd></div>
-              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">住所</dt><dd className="col-span-2">{facility.address || <span className="text-ink-400">未設定</span>}</dd></div>
-              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">電話</dt><dd className="col-span-2 num">{facility.phone || <span className="text-ink-400">未設定</span>}</dd></div>
-            </dl>
-            <button onClick={openFacility} className="btn btn-primary shrink-0">施設情報を編集</button>
-          </div>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider">施設一覧</h2>
+          <button onClick={() => { setAddDraft(emptyFacilityDraft()); setAddFacilityOpen(true); }} className="btn btn-sm btn-primary">＋ 施設を追加</button>
         </div>
+        <div className="card overflow-hidden">
+          {facilities.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[13px] text-ink-500">施設が登録されていません</div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-100 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-4 py-2 text-[11px] font-semibold">施設名</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold">住所</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold">電話</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-20">定員</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-32 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facilities.map((f) => (
+                  <tr key={f.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-ink-900">{f.name}</div>
+                      <div className="text-[10px] text-ink-500 num">{f.id}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-[12px] text-ink-700">{f.address || "—"}</td>
+                    <td className="px-4 py-2.5 text-[12px] text-ink-700 num">{f.phone || "—"}</td>
+                    <td className="px-4 py-2.5 text-right num text-ink-700">{f.capacity ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-center flex gap-1 justify-center">
+                      <button onClick={() => setCurrentFacilityId(f.id)} className={"btn btn-sm " + (currentFacilityId === f.id ? "btn-primary" : "")}>
+                        {currentFacilityId === f.id ? "選択中" : "切替"}
+                      </button>
+                      <button onClick={() => { setEditDraft({ ...f }); setEditingFacility(f); }} className="btn btn-sm">編集</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <p className="text-[11px] text-ink-500 mt-2">
+          ※ 「切替」ボタンまたはヘッダーの施設スイッチャーから、操作対象の施設を切替できます。「全施設」で全データを横断表示できます。
+        </p>
       </section>
 
       {CATEGORIES.map((cat) => (
@@ -164,32 +226,34 @@ export default function MastersPage() {
       ))}
 
       <div className="text-[11px] text-ink-500 pt-2 border-t border-ink-200">
-        ※ 施設情報以外のマスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面（一括編集 / 履歴 / インポート）を提供します。
+        ※ 施設情報以外のマスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面を提供します。
         <Link href="/admin/audit-logs" className="text-brand-700 hover:underline ml-2">監査ログを見る →</Link>
       </div>
 
-      {/* 施設情報 編集 */}
+      {/* 施設追加 */}
       <Modal
-        open={facilityOpen}
-        onClose={() => setFacilityOpen(false)}
-        title="施設情報の編集"
-        footer={<ModalFooter onCancel={() => setFacilityOpen(false)} onConfirm={saveFacility} />}
+        open={addFacilityOpen}
+        onClose={() => setAddFacilityOpen(false)}
+        title="施設を追加"
+        footer={<ModalFooter onCancel={() => setAddFacilityOpen(false)} onConfirm={addFacility} confirmLabel="追加" />}
       >
-        <div className="space-y-3">
-          <Field label="施設名（必須）">
-            <Input value={facilityDraft.name} onChange={(e) => setFacilityDraft({ ...facilityDraft, name: e.target.value })} placeholder="例：あすか苑" />
-          </Field>
-          <Field label="定員（室数）">
-            <Input type="number" value={facilityDraft.capacity ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, capacity: Number(e.target.value) || undefined })} className="num" placeholder="例：16" />
-          </Field>
-          <Field label="住所">
-            <Input value={facilityDraft.address ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, address: e.target.value })} placeholder="例：◯◯県◯◯市..." />
-          </Field>
-          <Field label="電話">
-            <Input value={facilityDraft.phone ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, phone: e.target.value })} placeholder="例：03-1234-5678" />
-          </Field>
-        </div>
-        <p className="text-[11px] text-ink-500 mt-3">施設名はヘッダー・ダッシュボード・職員所属の表示に反映されます。</p>
+        <FacilityForm draft={addDraft} setDraft={setAddDraft} />
+      </Modal>
+
+      {/* 施設編集 */}
+      <Modal
+        open={editingFacility !== null}
+        onClose={() => { setEditingFacility(null); setEditDraft(null); }}
+        title={`施設編集：${editingFacility?.name ?? ""}`}
+        footer={
+          <ModalFooter
+            onCancel={() => { setEditingFacility(null); setEditDraft(null); }}
+            onConfirm={saveFacility}
+            extra={editingFacility && <button onClick={() => removeFacility(editingFacility.id)} className="btn btn-sm text-err-700">削除</button>}
+          />
+        }
+      >
+        {editDraft && <FacilityForm draft={editDraft} setDraft={(d) => setEditDraft({ ...editDraft, ...d })} />}
       </Modal>
 
       <Modal
@@ -254,9 +318,30 @@ export default function MastersPage() {
         <div className="bg-err-50 border-l-4 border-err-600 rounded-r px-3 py-2 mb-3 text-[13px] text-err-700 font-semibold">
           ⚠ この操作は取り消せません。
         </div>
-        <p className="text-[13px]">本端末のブラウザに保存されているすべての B-CareHub データ（利用者・食事・請求・タスク・申し送り・マスタ等）を削除します。</p>
+        <p className="text-[13px]">本端末のブラウザに保存されているすべての B-CareHub データ（施設・利用者・食事・請求・タスク・申し送り・マスタ等）を削除します。</p>
         <p className="text-[12px] text-ink-500 mt-2">削除前にバックアップを書き出すことを推奨します。</p>
       </Modal>
+    </div>
+  );
+}
+
+function FacilityForm({ draft, setDraft }: { draft: Omit<Facility, "id">; setDraft: (d: Omit<Facility, "id">) => void }) {
+  return (
+    <div className="space-y-3">
+      <Field label="施設名（必須）">
+        <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="例：あすか苑 本館" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="定員（室数）">
+          <Input type="number" value={draft.capacity ?? ""} onChange={(e) => setDraft({ ...draft, capacity: Number(e.target.value) || undefined })} className="num" placeholder="例：16" />
+        </Field>
+        <Field label="電話">
+          <Input value={draft.phone ?? ""} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="例：03-1234-5678" />
+        </Field>
+      </div>
+      <Field label="住所">
+        <Input value={draft.address ?? ""} onChange={(e) => setDraft({ ...draft, address: e.target.value })} placeholder="例：◯◯県◯◯市..." />
+      </Field>
     </div>
   );
 }

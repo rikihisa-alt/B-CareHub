@@ -1,15 +1,22 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useHandovers, useAnnouncements, useUsers, logActivity, genId, nowIso } from "@/lib/store";
+import { useHandovers, useAnnouncements, useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, nowIso, filterByFacility } from "@/lib/store";
+import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { FilterChip, Field, Select, Input, ModalFooter } from "@/components/ui/primitives";
 
 export default function HandoversPage() {
-  const [handovers, setHandovers] = useHandovers();
-  const [announcements, setAnnouncements] = useAnnouncements();
-  const [users] = useUsers();
+  const [allHandovers, setHandovers] = useHandovers();
+  const [allAnnouncements, setAnnouncements] = useAnnouncements();
+  const [allUsers] = useUsers();
+  const [facilities] = useFacilities();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const handovers = useMemo(() => filterByFacility(allHandovers, currentFacilityId), [allHandovers, currentFacilityId]);
+  const announcements = useMemo(() => filterByFacility(allAnnouncements, currentFacilityId), [allAnnouncements, currentFacilityId]);
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+  const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
   const [filter, setFilter] = useState<"all" | "important">("all");
   const [composeOpen, setComposeOpen] = useState(false);
   const [draft, setDraft] = useState({ userId: "", content: "", important: false });
@@ -26,9 +33,10 @@ export default function HandoversPage() {
       toast("内容を入力してください", "warn");
       return;
     }
-    const user = users.find((u) => u.id === draft.userId);
+    const user = allUsers.find((u) => u.id === draft.userId);
+    const facilityId = user?.facilityId ?? defaultFacilityId;
     setHandovers((cur) => [
-      { id: genId("H"), at: nowIso(), staff: "田中 太郎", userId: draft.userId || undefined, userName: user?.name, content: draft.content, important: draft.important },
+      { id: genId("H"), facilityId, at: nowIso(), staff: "田中 太郎", userId: draft.userId || undefined, userName: user?.name, content: draft.content, important: draft.important },
       ...cur,
     ]);
     logActivity(`申し送り記載${draft.important ? "（★重要）" : ""}：${draft.content.slice(0, 20)}…`);
