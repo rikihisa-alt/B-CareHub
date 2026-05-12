@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { SideMenu } from "@/components/nav";
 import { ToastContainer } from "@/components/ui/toast";
+import { FacilityName } from "@/components/facility-name";
 
 export const metadata: Metadata = {
   title: "B-CareHub | 住宅型有料老人ホーム業務管理",
@@ -23,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </span>
                 <span className="text-[15px] font-semibold tracking-wide">B-CareHub</span>
               </a>
-              <span className="text-[12px] text-ink-500 border-l border-ink-200 pl-4">あすか苑（仮）</span>
+              <FacilityName className="text-[12px] text-ink-500 border-l border-ink-200 pl-4" />
             </div>
             <div className="flex items-center gap-3 text-[13px] text-ink-700">
               <a href="/help" className="hover:text-brand-700 text-[12px]">使い方ガイド</a>
@@ -41,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <div className="px-4 py-3 border-b border-ink-100">
                     <div className="font-semibold text-ink-900">田中 太郎</div>
                     <div className="text-[11px] text-ink-500 mt-0.5">職員番号 1042 ／ 事務担当</div>
-                    <div className="text-[11px] text-ink-500">所属：あすか苑（仮）</div>
+                    <div className="text-[11px] text-ink-500">所属：<FacilityName /></div>
                   </div>
                   <ul className="py-1">
                     <li><a href="#" className="block px-4 py-1.5 hover:bg-ink-50">施設を切り替え</a></li>
@@ -70,7 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="no-print border-t border-ink-200 bg-white">
           <div className="px-6 py-2.5 text-[11px] text-ink-500 flex justify-between">
             <span>© Backlly / B-CareHub Prototype</span>
-            <span>このページはデモ用モックデータで動作しています</span>
+            <span>データはこの端末のブラウザに保存されます</span>
           </div>
         </footer>
       </body>

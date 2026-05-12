@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { type StaffMember } from "@/lib/data";
-import { useStaff, logActivity, genId } from "@/lib/store";
+import { useStaff, useFacility, logActivity, genId } from "@/lib/store";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
@@ -23,8 +23,8 @@ const PERMISSIONS = [
 
 type Draft = Omit<StaffMember, "id" | "role" | "lastLogin">;
 
-function emptyDraft(): Draft {
-  return { name: "", roleId: "office", email: "", facility: "あすか苑（仮）", active: true };
+function emptyDraft(facilityName: string): Draft {
+  return { name: "", roleId: "office", email: "", facility: facilityName, active: true };
 }
 
 function roleNameOf(id: StaffMember["roleId"]) {
@@ -33,12 +33,13 @@ function roleNameOf(id: StaffMember["roleId"]) {
 
 export default function StaffPage() {
   const [staff, setStaff] = useStaff();
+  const [facility] = useFacility();
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
   const [editing, setEditing] = useState<StaffMember | null>(null);
-  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft());
+  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft(facility.name));
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [addDraft, setAddDraft] = useState<Draft>(emptyDraft());
+  const [addDraft, setAddDraft] = useState<Draft>(emptyDraft(facility.name));
 
   const list = useMemo(() => staff.filter((s) => filter === "all" ? true : filter === "active" ? s.active : !s.active), [staff, filter]);
   const roleCounts = useMemo(() => {
@@ -73,7 +74,7 @@ export default function StaffPage() {
     logActivity(`職員「${addDraft.name}」を追加`);
     toast("職員を追加しました", "ok");
     setAddOpen(false);
-    setAddDraft(emptyDraft());
+    setAddDraft(emptyDraft(facility.name));
   }
 
   function saveEdit() {
@@ -110,7 +111,7 @@ export default function StaffPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={exportCsv} className="btn" disabled={staff.length === 0}>CSV エクスポート</button>
-          <button onClick={() => { setAddDraft(emptyDraft()); setAddOpen(true); }} className="btn btn-primary">＋ 職員追加</button>
+          <button onClick={() => { setAddDraft(emptyDraft(facility.name)); setAddOpen(true); }} className="btn btn-primary">＋ 職員追加</button>
         </div>
       </header>
 

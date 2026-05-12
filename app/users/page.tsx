@@ -47,6 +47,10 @@ export default function UsersPage() {
       toast("氏名・フリガナを入力してください", "warn");
       return;
     }
+    if (draft.room && !/^[A-Za-z0-9-]+$/.test(draft.room)) {
+      toast("部屋番号は半角英数字とハイフンのみ使用できます", "warn");
+      return;
+    }
     const id = genId("U");
     const user: User = { ...draft, id, monthlyBilling: emptyBilling() };
     setUsers((cur) => [...cur, user]);
@@ -163,7 +167,16 @@ export default function UsersPage() {
               <option>女</option><option>男</option><option>その他</option>
             </Select>
           </Field>
-          <Field label="部屋"><Input value={draft.room} onChange={(e) => setDraft({ ...draft, room: e.target.value })} placeholder="例：101" className="num" /></Field>
+          <Field label="部屋（半角英数字）" hint="例：101 / A2 / 2F-3 など">
+            <Input
+              value={draft.room}
+              onChange={(e) => setDraft({ ...draft, room: e.target.value.replace(/[^A-Za-z0-9-]/g, "") })}
+              placeholder="例：101"
+              className="num"
+              inputMode="text"
+              pattern="[A-Za-z0-9-]*"
+            />
+          </Field>
           <Field label="入居日"><Input type="date" value={draft.moveInDate} onChange={(e) => setDraft({ ...draft, moveInDate: e.target.value })} className="num" /></Field>
           <Field label="介護度">
             <Select value={draft.careLevel} onChange={(e) => setDraft({ ...draft, careLevel: e.target.value })}>

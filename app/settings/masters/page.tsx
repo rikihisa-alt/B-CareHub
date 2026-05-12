@@ -3,14 +3,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
-import { ModalFooter } from "@/components/ui/primitives";
-import { clearAllData, exportAllData, importAllData, logActivity } from "@/lib/store";
+import { Field, Input, ModalFooter } from "@/components/ui/primitives";
+import { clearAllData, exportAllData, importAllData, logActivity, useFacility, type Facility } from "@/lib/store";
 
 const CATEGORIES = [
-  { group: "施設・部屋", items: [
-    { name: "施設情報", desc: "施設名、住所、ロゴ、印鑑欄" },
-    { name: "部屋マスタ", desc: "部屋番号、定員、家賃ベース額" },
-  ]},
   { group: "食事", items: [
     { name: "食事業者", desc: "業者名、種別、配達ルール（土曜まとめ等）" },
     { name: "食事区分・形態", desc: "朝/昼/夕、普通・きざみ・ミキサー等" },
@@ -33,7 +29,10 @@ const CATEGORIES = [
 ];
 
 export default function MastersPage() {
+  const [facility, setFacility] = useFacility();
   const [editing, setEditing] = useState<string | null>(null);
+  const [facilityOpen, setFacilityOpen] = useState(false);
+  const [facilityDraft, setFacilityDraft] = useState<Facility>(facility);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -84,6 +83,22 @@ export default function MastersPage() {
     setTimeout(() => window.location.reload(), 800);
   }
 
+  function saveFacility() {
+    if (!facilityDraft.name.trim()) {
+      toast("施設名を入力してください", "warn");
+      return;
+    }
+    setFacility(facilityDraft);
+    logActivity(`施設情報を更新（${facilityDraft.name}）`);
+    toast("施設情報を保存しました", "ok");
+    setFacilityOpen(false);
+  }
+
+  function openFacility() {
+    setFacilityDraft(facility);
+    setFacilityOpen(true);
+  }
+
   return (
     <div className="space-y-5">
       <header className="flex items-end justify-between">
@@ -101,8 +116,24 @@ export default function MastersPage() {
       <div className="card p-3 text-[12px] text-ink-600 bg-info-50/40 border-l-[3px] border-info-600">
         マスタ変更は食事発注・請求の計算に直接影響します。確定済の発注・請求は再計算されないため、月の途中での単価変更等は影響範囲をご確認ください。
         <br />
-        現在の運用データは、本端末のブラウザストレージに保存されています。定期的にバックアップを行うことを推奨します。
+        運用データはこの端末のブラウザに保存されます。定期的にバックアップを推奨します。
       </div>
+
+      {/* 施設情報（独立カード・編集可） */}
+      <section>
+        <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider mb-2">施設情報</h2>
+        <div className="card p-4">
+          <div className="flex items-start justify-between gap-4">
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[13px] flex-1">
+              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">施設名</dt><dd className="col-span-2 font-semibold text-ink-900">{facility.name || <span className="text-ink-400">未設定</span>}</dd></div>
+              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">定員</dt><dd className="col-span-2 num">{facility.capacity ?? "—"} 室</dd></div>
+              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">住所</dt><dd className="col-span-2">{facility.address || <span className="text-ink-400">未設定</span>}</dd></div>
+              <div className="grid grid-cols-3 gap-2"><dt className="text-[11px] text-ink-500">電話</dt><dd className="col-span-2 num">{facility.phone || <span className="text-ink-400">未設定</span>}</dd></div>
+            </dl>
+            <button onClick={openFacility} className="btn btn-primary shrink-0">施設情報を編集</button>
+          </div>
+        </div>
+      </section>
 
       {CATEGORIES.map((cat) => (
         <section key={cat.group}>
@@ -133,9 +164,33 @@ export default function MastersPage() {
       ))}
 
       <div className="text-[11px] text-ink-500 pt-2 border-t border-ink-200">
-        ※ マスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面（一括編集 / 履歴 / インポート）を提供します。
+        ※ 施設情報以外のマスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面（一括編集 / 履歴 / インポート）を提供します。
         <Link href="/admin/audit-logs" className="text-brand-700 hover:underline ml-2">監査ログを見る →</Link>
       </div>
+
+      {/* 施設情報 編集 */}
+      <Modal
+        open={facilityOpen}
+        onClose={() => setFacilityOpen(false)}
+        title="施設情報の編集"
+        footer={<ModalFooter onCancel={() => setFacilityOpen(false)} onConfirm={saveFacility} />}
+      >
+        <div className="space-y-3">
+          <Field label="施設名（必須）">
+            <Input value={facilityDraft.name} onChange={(e) => setFacilityDraft({ ...facilityDraft, name: e.target.value })} placeholder="例：あすか苑" />
+          </Field>
+          <Field label="定員（室数）">
+            <Input type="number" value={facilityDraft.capacity ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, capacity: Number(e.target.value) || undefined })} className="num" placeholder="例：16" />
+          </Field>
+          <Field label="住所">
+            <Input value={facilityDraft.address ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, address: e.target.value })} placeholder="例：◯◯県◯◯市..." />
+          </Field>
+          <Field label="電話">
+            <Input value={facilityDraft.phone ?? ""} onChange={(e) => setFacilityDraft({ ...facilityDraft, phone: e.target.value })} placeholder="例：03-1234-5678" />
+          </Field>
+        </div>
+        <p className="text-[11px] text-ink-500 mt-3">施設名はヘッダー・ダッシュボード・職員所属の表示に反映されます。</p>
+      </Modal>
 
       <Modal
         open={editing !== null}

@@ -7,7 +7,7 @@ import {
 } from "@/lib/data";
 import {
   useUsers, useTasks, useHandovers, useActivities, useGoods, useDocuments,
-  useMealConfirmations, useSingleCancellations, logActivity, genId, todayIso,
+  useMealConfirmations, useSingleCancellations, useFacility, logActivity, genId, todayIso,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [documents] = useDocuments();
   const [confirmations, setConfirmations] = useMealConfirmations();
   const [singleCancellations] = useSingleCancellations();
+  const [facility] = useFacility();
 
   const today = todayIso();
   const [yYear, yMonth] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
@@ -40,7 +41,7 @@ export default function DashboardPage() {
   const hospital = users.filter((u) => u.status === "入院中").length;
   const overnight = users.filter((u) => u.status === "外泊中").length;
   const homeVisit = users.filter((u) => u.status === "一時帰宅").length;
-  const capacity = 16;
+  const capacity = facility.capacity ?? 16;
   const vacancy = capacity - users.filter((u) => u.status !== "退去済").length;
 
   const totalBilling = users.reduce((s, u) => s + totalOf(u), 0);
@@ -110,7 +111,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-[22px] font-semibold text-ink-900">ダッシュボード</h1>
-        <p className="text-[12px] text-ink-500 mt-0.5">{today.replace(/-/g, "/")} ／ あすか苑（仮）</p>
+        <p className="text-[12px] text-ink-500 mt-0.5">{today.replace(/-/g, "/")} ／ {facility.name}</p>
       </header>
 
       {users.length === 0 && <SetupGuide />}
@@ -469,10 +470,11 @@ function SetupGuide() {
           </p>
 
           <ol className="mt-4 space-y-2.5">
-            <SetupStep n={1} title="利用者を登録する" desc="氏名・部屋・キーパーソンなどを登録します（必須）" href="/users" cta="利用者を登録 →" />
-            <SetupStep n={2} title="食事設定を入力する" desc="利用者ごとに朝・昼・夕の食事業者と形態を設定します" href="/users" cta="利用者一覧へ →" />
-            <SetupStep n={3} title="食事を確認・確定する" desc="今日の食事数が自動算出されます。締切までに業者へ発注しましょう" href="/meals" cta="食事カレンダーへ →" />
-            <SetupStep n={4} title="日用品・書類を登録する" desc="在庫不足や期限切れを自動でアラート表示します" href="/goods" cta="日用品へ →" />
+            <SetupStep n={1} title="施設情報を入力する" desc="施設名・定員・住所を設定します（ヘッダーや請求書に反映）" href="/settings/masters" cta="マスタへ →" />
+            <SetupStep n={2} title="利用者を登録する" desc="氏名・部屋（半角英数字）・キーパーソンなどを登録します" href="/users" cta="利用者を登録 →" />
+            <SetupStep n={3} title="食事設定を入力する" desc="利用者ごとに朝・昼・夕の食事業者と形態を設定します" href="/users" cta="利用者一覧へ →" />
+            <SetupStep n={4} title="食事を確認・確定する" desc="今日の食事数が自動算出されます。締切までに業者へ発注しましょう" href="/meals" cta="食事カレンダーへ →" />
+            <SetupStep n={5} title="日用品・書類を登録する" desc="在庫不足や期限切れを自動でアラート表示します" href="/goods" cta="日用品へ →" />
           </ol>
 
           <div className="mt-5 text-[12px] text-ink-600 bg-white/70 rounded p-3">

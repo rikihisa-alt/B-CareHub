@@ -5,6 +5,13 @@ import type {
   MealConfirmation, SingleCancellation,
 } from "./data";
 
+export type Facility = {
+  name: string;
+  address?: string;
+  phone?: string;
+  capacity?: number;
+};
+
 // localStorage キーの prefix（バージョン管理用）
 const PREFIX = "bch:v1:";
 
@@ -97,11 +104,14 @@ export function useBillingConfirmations() {
 }
 
 export function useStaff() {
-  // 初期：管理者・事務がいないと運用不可なので、最低限の3名をデフォルトに
   const initial: StaffMember[] = [
-    { id: "S001", name: "田中 太郎", roleId: "office", role: "事務担当", email: "tanaka@example.com", facility: "あすか苑（仮）", active: true, lastLogin: "—" },
+    { id: "S001", name: "田中 太郎", roleId: "office", role: "事務担当", email: "tanaka@example.com", facility: "—", active: true, lastLogin: "—" },
   ];
   return useStored<StaffMember[]>("staff", initial);
+}
+
+export function useFacility() {
+  return useStored<Facility>("facility", { name: "あすか苑", capacity: 16 });
 }
 
 // ========= アクティビティログ =========
