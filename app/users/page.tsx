@@ -146,6 +146,10 @@ export default function UsersPage() {
         size="lg"
         footer={<ModalFooter onCancel={() => setNewOpen(false)} onConfirm={saveNew} confirmLabel="登録" />}
       >
+        <div className="bg-info-50/40 border-l-[3px] border-info-600 rounded-r px-3 py-2 mb-3 text-[12px] text-ink-800">
+          💡 まずは <b>氏名・フリガナ・部屋・入居日</b> を入れて登録すれば OK です。<br />
+          食事設定・アレルギー・固定費などは、登録後の詳細画面から追加できます。
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="氏名（必須）"><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
           <Field label="フリガナ（必須）"><Input value={draft.kana} onChange={(e) => setDraft({ ...draft, kana: e.target.value })} /></Field>

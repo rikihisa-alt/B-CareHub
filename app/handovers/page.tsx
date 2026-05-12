@@ -78,8 +78,19 @@ export default function HandoversPage() {
 
         <div className="card">
           {list.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[13px] text-ink-500">
-              {handovers.length === 0 ? "申し送りはまだ記載されていません" : "該当する申し送りはありません"}
+            <div className="px-4 py-10 text-center">
+              {handovers.length === 0 ? (
+                <>
+                  <div className="text-[14px] font-semibold text-ink-800 mb-1">💬 申し送りの使い方</div>
+                  <p className="text-[12px] text-ink-600 mb-4 leading-relaxed max-w-md mx-auto">
+                    職員間の引き継ぎ・看護指示・気付いたことを時系列で記録します。<br />
+                    「★ 重要」マークを付けると、ダッシュボードのアラート枠にも表示されます。
+                  </p>
+                  <button onClick={() => setComposeOpen(true)} className="btn btn-primary">＋ 最初の申し送りを記載する</button>
+                </>
+              ) : (
+                <span className="text-[13px] text-ink-500">該当する申し送りはありません</span>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-ink-100">

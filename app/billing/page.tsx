@@ -74,8 +74,12 @@ export default function BillingPage() {
       <div className="card overflow-x-auto">
         {users.length === 0 ? (
           <div className="px-3 py-12 text-center">
-            <div className="text-[13px] text-ink-500 mb-3">利用者がまだ登録されていません。</div>
-            <Link href="/users" className="btn btn-primary">利用者を登録する</Link>
+            <div className="text-[14px] font-semibold text-ink-800 mb-1">💰 月次請求の使い方</div>
+            <p className="text-[12px] text-ink-600 mb-4 leading-relaxed max-w-md mx-auto">
+              利用者の家賃・共益費・水光熱費・食費・日用品・介護利用料などを月別に一覧表示。<br />
+              「一括確定」で当月分を締めて、自動再計算をロックできます。
+            </p>
+            <Link href="/users" className="btn btn-primary">利用者を登録する →</Link>
           </div>
         ) : (
           <table className="w-full text-[13px]">

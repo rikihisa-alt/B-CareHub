@@ -26,8 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="text-[12px] text-ink-500 border-l border-ink-200 pl-4">あすか苑（仮）</span>
             </div>
             <div className="flex items-center gap-3 text-[13px] text-ink-700">
-              <button className="p-2 hover:bg-ink-50 rounded" title="検索">🔍</button>
-              <a href="#" className="hover:text-brand-700 text-[12px]">ヘルプ</a>
+              <a href="/help" className="hover:text-brand-700 text-[12px]">使い方ガイド</a>
               <span className="w-px h-5 bg-ink-200" />
               {/* アカウントメニュー（ドロップダウン） */}
               <details className="relative">

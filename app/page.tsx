@@ -113,13 +113,7 @@ export default function DashboardPage() {
         <p className="text-[12px] text-ink-500 mt-0.5">{today.replace(/-/g, "/")} ／ あすか苑（仮）</p>
       </header>
 
-      {users.length === 0 && (
-        <div className="card p-6 text-center bg-info-50/30 border-info-600/30">
-          <div className="text-[14px] font-semibold text-ink-800 mb-1">B-CareHub へようこそ</div>
-          <p className="text-[12px] text-ink-600 mb-3">利用者がまだ登録されていません。「利用者」メニューから登録を始めてください。</p>
-          <Link href="/users" className="btn btn-primary">＋ 利用者を登録する</Link>
-        </div>
-      )}
+      {users.length === 0 && <SetupGuide />}
 
       <section className="card divide-x divide-ink-100 flex">
         <ActionItem href={`/meals/${today}`} value={mealsUnconfirmed} unit="区分" label="食事 未確定" tone={mealsUnconfirmed > 0 ? "err" : "neutral"} />
@@ -459,4 +453,51 @@ function Stat({ label, value, unit, tone, href }: { label: string; value: string
 
 function Sep() {
   return <span className="text-ink-300">・</span>;
+}
+
+function SetupGuide() {
+  return (
+    <section className="card p-6 bg-gradient-to-br from-brand-50 to-info-50/40 border-brand-200">
+      <div className="flex items-start gap-4">
+        <div className="w-12 h-12 rounded-full bg-brand-600 flex items-center justify-center text-white text-[22px] shrink-0">
+          ★
+        </div>
+        <div className="flex-1">
+          <h2 className="text-[18px] font-semibold text-ink-900">B-CareHub を始めましょう</h2>
+          <p className="text-[13px] text-ink-700 mt-1">
+            まだデータがありません。下の順番でセットアップを進めれば、5 分で運用を始められます。
+          </p>
+
+          <ol className="mt-4 space-y-2.5">
+            <SetupStep n={1} title="利用者を登録する" desc="氏名・部屋・キーパーソンなどを登録します（必須）" href="/users" cta="利用者を登録 →" />
+            <SetupStep n={2} title="食事設定を入力する" desc="利用者ごとに朝・昼・夕の食事業者と形態を設定します" href="/users" cta="利用者一覧へ →" />
+            <SetupStep n={3} title="食事を確認・確定する" desc="今日の食事数が自動算出されます。締切までに業者へ発注しましょう" href="/meals" cta="食事カレンダーへ →" />
+            <SetupStep n={4} title="日用品・書類を登録する" desc="在庫不足や期限切れを自動でアラート表示します" href="/goods" cta="日用品へ →" />
+          </ol>
+
+          <div className="mt-5 text-[12px] text-ink-600 bg-white/70 rounded p-3">
+            <div className="font-semibold mb-1">💡 ご利用のヒント</div>
+            <ul className="space-y-1 list-disc list-inside">
+              <li>すべてのデータは <b>この端末のブラウザ</b> に保存されます。別 PC への移行は「マスタ・データ管理」からバックアップ書出してください。</li>
+              <li>左サイドバーのバッジ数字は <b>本当に対応が必要</b> な件数のみ表示されます。</li>
+              <li>各画面の操作は <b>取消・削除</b> が可能で、変更履歴は「アクティビティ」「監査ログ」に残ります。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SetupStep({ n, title, desc, href, cta }: { n: number; title: string; desc: string; href: string; cta: string }) {
+  return (
+    <li className="flex items-start gap-3 bg-white/80 rounded p-3">
+      <span className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-[14px] shrink-0">{n}</span>
+      <div className="flex-1">
+        <div className="text-[14px] font-semibold text-ink-900">{title}</div>
+        <div className="text-[12px] text-ink-600 mt-0.5">{desc}</div>
+      </div>
+      <Link href={href} className="btn btn-sm btn-primary shrink-0">{cta}</Link>
+    </li>
+  );
 }

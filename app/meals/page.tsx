@@ -64,9 +64,13 @@ export default function MealsPage() {
       </header>
 
       {users.length === 0 && (
-        <div className="card p-5 text-center bg-info-50/30">
-          <div className="text-[13px] text-ink-600 mb-3">利用者が登録されていないため食数は 0 です。</div>
-          <Link href="/users" className="btn btn-primary">利用者を登録する</Link>
+        <div className="card p-6 text-center bg-info-50/30 border-info-600/30">
+          <div className="text-[14px] font-semibold text-ink-800 mb-1">📅 食事カレンダーの使い方</div>
+          <p className="text-[12px] text-ink-600 mb-4 leading-relaxed">
+            利用者を登録し、食事設定（朝パン・朝ジュース・昼業者・夕業者）を入力すると、<br />
+            このカレンダーに業者別の食数が自動で集計されて表示されます。
+          </p>
+          <Link href="/users" className="btn btn-primary">利用者を登録する →</Link>
         </div>
       )}
 

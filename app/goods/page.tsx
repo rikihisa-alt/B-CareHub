@@ -98,13 +98,19 @@ export default function GoodsPage() {
       <div className="card overflow-x-auto">
         {list.length === 0 ? (
           <div className="px-3 py-12 text-center">
-            <div className="text-[13px] text-ink-500 mb-3">
-              {goods.length === 0 ? "商品がまだ登録されていません。" : "該当する商品がありません。"}
-            </div>
-            {goods.length === 0 && (
-              <button onClick={() => { setNewDraft(emptyDraft()); setNewOpen(true); }} className="btn btn-primary">
-                ＋ 最初の商品を登録する
-              </button>
+            {goods.length === 0 ? (
+              <>
+                <div className="text-[14px] font-semibold text-ink-800 mb-1">📦 日用品管理の使い方</div>
+                <p className="text-[12px] text-ink-600 mb-4 leading-relaxed max-w-md mx-auto">
+                  おむつ・パッド・ティッシュなどの商品マスタを登録すると、在庫数が最低在庫を下回ったときに<br />
+                  自動でアラートが表示され、発注候補表を CSV で書き出せます。
+                </p>
+                <button onClick={() => { setNewDraft(emptyDraft()); setNewOpen(true); }} className="btn btn-primary">
+                  ＋ 最初の商品を登録する
+                </button>
+              </>
+            ) : (
+              <span className="text-[13px] text-ink-500">該当する商品がありません。</span>
             )}
           </div>
         ) : (
