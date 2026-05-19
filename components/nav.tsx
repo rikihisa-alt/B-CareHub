@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import {
   useUsers, useTasks, useHandovers, useGoods, useDocuments,
-  useMealConfirmations, useBillingConfirmations, todayIso,
+  useMealConfirmations, useBillingConfirmations, useUtilityBills, todayIso,
 } from "@/lib/store";
 
 type Item = {
@@ -27,10 +27,14 @@ export function SideMenu() {
   const [documents] = useDocuments();
   const [mealConfirmations] = useMealConfirmations();
   const [billingConfirmations] = useBillingConfirmations();
+  const [utilityBills] = useUtilityBills();
 
   const groups = useMemo<Group[]>(() => {
     const today = todayIso();
     const ym = today.slice(0, 7);
+
+    // 光熱費：当月の未払い件数
+    const utilityUnpaid = utilityBills.filter((b) => b.ym === ym && b.status === "未払い").length;
 
     // 食事発注：本日の未確定 区分数
     const todayConf = mealConfirmations[today] ?? {};
@@ -61,6 +65,7 @@ export function SideMenu() {
           { href: "/users", label: "利用者" },
           { href: "/meals", label: "食事発注", badge: mealUnconfirmed, badgeTone: "warn" },
           { href: "/billing", label: "月次請求", badge: billingUnconfirmed, badgeTone: "warn" },
+          { href: "/utilities", label: "光熱費", badge: utilityUnpaid, badgeTone: "warn" },
           { href: "/goods", label: "日用品", badge: lowStock, badgeTone: "warn" },
         ],
       },

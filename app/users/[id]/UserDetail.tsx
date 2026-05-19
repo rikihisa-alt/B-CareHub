@@ -2,9 +2,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate, computeUserBilling } from "@/lib/data";
+import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate, computeUserBilling, utilityBillsToLineItems } from "@/lib/data";
 import {
-  useTasks, useHandovers, useRegularServices, useBillingLineItems,
+  useTasks, useHandovers, useRegularServices, useBillingLineItems, useUtilityBills,
   useFacilities, useCurrentFacilityId,
   logActivity, genId, todayIso, nowIso,
 } from "@/lib/store";
@@ -43,9 +43,13 @@ export function UserDetail({
   const [, setHandovers] = useHandovers();
   const [services, setServices] = useRegularServices();
   const [lineItems, setLineItems] = useBillingLineItems();
+  const [utilityBills] = useUtilityBills();
   const [facilities] = useFacilities();
   const [billingYm, setBillingYm] = useState(todayIso().slice(0, 7));
-  const userBilling = computeUserBilling(user.id, billingYm, services, lineItems);
+  // 光熱費から自動的に明細を生成して billing 計算に含める
+  const utilityItems = utilityBillsToLineItems(utilityBills, user.room, billingYm, user.facilityId)
+    .map((it) => ({ ...it, userId: user.id }));
+  const userBilling = computeUserBilling(user.id, billingYm, services, [...lineItems, ...utilityItems]);
   const facility = facilities.find((f) => f.id === user.facilityId) ?? facilities[0];
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 

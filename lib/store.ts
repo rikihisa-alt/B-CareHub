@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import type {
   User, Task, Handover, Announcement, Activity, DailyGood, DocItem, StaffMember,
-  MealConfirmation, SingleCancellation, RegularService, BillingLineItem,
+  MealConfirmation, SingleCancellation, RegularService, BillingLineItem, UtilityBill,
 } from "./data";
 
 export type BankAccount = {
@@ -104,6 +104,10 @@ export function useRegularServices() {
 
 export function useBillingLineItems() {
   return useStored<BillingLineItem[]>("billingLineItems", []);
+}
+
+export function useUtilityBills() {
+  return useStored<UtilityBill[]>("utilityBills", []);
 }
 
 export function useStaff() {

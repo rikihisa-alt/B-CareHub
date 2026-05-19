@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { jpy, computeUserBilling, type BillingBreakdown } from "@/lib/data";
-import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { jpy, computeUserBilling, utilityBillsToLineItems, type BillingBreakdown } from "@/lib/data";
+import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useUtilityBills, logActivity, todayIso, filterByFacility } from "@/lib/store";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -18,20 +18,22 @@ export default function BillingPage() {
   const [confirmations, setConfirmations] = useBillingConfirmations();
   const [services] = useRegularServices();
   const [lineItems] = useBillingLineItems();
+  const [utilityBills] = useUtilityBills();
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
 
-  // 各利用者の breakdown を当月分で算出
+  // 各利用者の breakdown を当月分で算出（光熱費も自動加算）
   const userBillings = useMemo(() => {
     const map: Record<string, { breakdown: BillingBreakdown; total: number }> = {};
     users.forEach((u) => {
-      const { breakdown, total } = computeUserBilling(u.id, ym, services, lineItems);
+      const utilItems = utilityBillsToLineItems(utilityBills, u.room, ym, u.facilityId).map((it) => ({ ...it, userId: u.id }));
+      const { breakdown, total } = computeUserBilling(u.id, ym, services, [...lineItems, ...utilItems]);
       map[u.id] = { breakdown, total };
     });
     return map;
-  }, [users, services, lineItems, ym]);
+  }, [users, services, lineItems, utilityBills, ym]);
 
   const sum = (k: BillingKey) => users.reduce((s, u) => s + (userBillings[u.id]?.breakdown[k] ?? 0), 0);
   const totalAll = users.reduce((s, u) => s + (userBillings[u.id]?.total ?? 0), 0);

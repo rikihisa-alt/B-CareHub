@@ -156,6 +156,52 @@ export function expandRegularServices(services: RegularService[], ym: string, us
     }));
 }
 
+/** 光熱費（部屋ごと、月ごと） */
+export type UtilityType = "電気" | "ガス" | "水道" | "灯油" | "その他";
+
+export type UtilityBill = {
+  id: string;
+  facilityId?: string;
+  roomNo: string;              // 部屋番号（User.room と照合）
+  ym: string;                  // 年月 "YYYY-MM"
+  type: UtilityType;
+  provider?: string;           // 業者名 例：東京電力／東京ガス
+  meterReading?: number;       // 検針値（任意）
+  amount: number;              // 請求金額（業者からの請求額）
+  status: "未払い" | "支払済";
+  paidDate?: string;
+  paidAmount?: number;
+  taxRate?: TaxRate;           // 通常は標準 10%
+  billToUser: boolean;         // 入居者へ請求に転嫁するか
+  note?: string;
+};
+
+/** 光熱費 → BillingLineItem へ変換（入居者請求対応分のみ） */
+export function utilityBillsToLineItems(
+  bills: UtilityBill[],
+  roomNo: string,
+  ym: string,
+  facilityId?: string,
+): BillingLineItem[] {
+  return bills
+    .filter((b) => b.billToUser && b.roomNo === roomNo && b.ym === ym && (!facilityId || !b.facilityId || b.facilityId === facilityId))
+    .map((b) => ({
+      id: `UB-${b.id}`,
+      userId: "",                  // 後で呼び出し側がセット
+      facilityId: b.facilityId,
+      ym: b.ym,
+      category: "水道光熱費" as BillingCategory,
+      name: `${b.type}代${b.provider ? `（${b.provider}）` : ""}`,
+      date: `${ym}-末`,
+      quantity: 1,
+      unitPrice: b.amount,
+      amount: b.amount,
+      taxRate: b.taxRate ?? 0.1,
+      source: "manual" as const,
+      note: b.note,
+    }));
+}
+
 /** 利用者の特定月の請求合計を算出 */
 export function computeUserBilling(
   userId: string,

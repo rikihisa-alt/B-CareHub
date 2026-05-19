@@ -3,13 +3,13 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   jpy, buildMonthMealCounts, timeToDeadline, vendors,
-  computeUserBilling,
+  computeUserBilling, utilityBillsToLineItems,
   type Task, type User,
 } from "@/lib/data";
 import {
   useUsers, useTasks, useHandovers, useActivities, useGoods, useDocuments,
   useMealConfirmations, useSingleCancellations, useFacilities, useCurrentFacilityId,
-  useRegularServices, useBillingLineItems,
+  useRegularServices, useBillingLineItems, useUtilityBills,
   logActivity, genId, todayIso, filterByFacility,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [currentFacilityId] = useCurrentFacilityId();
   const [services] = useRegularServices();
   const [lineItems] = useBillingLineItems();
+  const [utilityBills] = useUtilityBills();
 
   // 施設フィルタ
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
@@ -90,7 +91,10 @@ export default function DashboardPage() {
     : facilities.find((f) => f.id === currentFacilityId)?.name ?? "未選択";
 
   const ymToday = today.slice(0, 7);
-  const totalBilling = users.reduce((s, u) => s + computeUserBilling(u.id, ymToday, services, lineItems).total, 0);
+  const totalBilling = users.reduce((s, u) => {
+    const utilItems = utilityBillsToLineItems(utilityBills, u.room, ymToday, u.facilityId).map((it) => ({ ...it, userId: u.id }));
+    return s + computeUserBilling(u.id, ymToday, services, [...lineItems, ...utilItems]).total;
+  }, 0);
   const tasksUrgent = tasks.filter((t) => t.priority === "高" && t.status !== "完了").length;
   const importantHandovers = handovers.filter((h) => h.important).length;
   const lowStockCount = goods.filter((g) => g.stock < g.min).length;
