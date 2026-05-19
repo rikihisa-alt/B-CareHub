@@ -6,7 +6,7 @@ import { useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, filt
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
-import { downloadCsv, doPrint } from "@/components/ui/helpers";
+import { downloadCsv, doPrint, parseCsv } from "@/components/ui/helpers";
 import { StatusBadge, Pill, FilterChip, Field, Input, Select, Th, ModalFooter } from "@/components/ui/primitives";
 
 type Filter = "all" | "active" | "hospital" | "away" | "left";
@@ -20,6 +20,9 @@ export default function UsersPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [newOpen, setNewOpen] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvPreview, setCsvPreview] = useState<{ ok: User[]; errors: string[] } | null>(null);
   const defaultFacilityId = currentFacilityId ?? facilities[0]?.id;
   const [draft, setDraft] = useState<Omit<User, "id">>(emptyUserDraft(defaultFacilityId));
 
@@ -40,6 +43,104 @@ export default function UsersPage() {
     overnight: scopedUsers.filter((u) => u.status === "外泊中").length,
     homeVisit: scopedUsers.filter((u) => u.status === "一時帰宅").length,
   };
+
+  function downloadTemplate() {
+    downloadCsv("利用者一括登録テンプレート.csv", [
+      ["氏名", "フリガナ", "部屋", "生年月日", "性別", "介護度", "入居日", "キーパーソン氏名", "キーパーソン続柄", "キーパーソン電話", "朝パン(1/0)", "朝ジュース(1/0)", "昼業者(A社/B社/なし)", "夕業者(A社/B社/なし)", "食事形態", "飲水形態"],
+      ["山田 太郎", "ヤマダ タロウ", "101", "1940-05-12", "男", "要介護2", "2025-04-01", "山田 花子", "妻", "090-1234-5678", "1", "1", "A社", "B社", "普通食", "常水"],
+      ["鈴木 ハナ", "スズキ ハナ", "102", "1935-09-03", "女", "要介護3", "2024-06-15", "鈴木 一郎", "長男", "080-2345-6789", "0", "1", "なし", "A社", "きざみ", "とろみ薄"],
+    ]);
+  }
+
+  function parseImport() {
+    const rows = parseCsv(csvText);
+    if (rows.length === 0) {
+      toast("CSV が空です", "warn");
+      return;
+    }
+    const [header, ...dataRows] = rows;
+    const idx = (name: string) => header.findIndex((h) => h.trim() === name);
+    const iName = idx("氏名"), iKana = idx("フリガナ"), iRoom = idx("部屋");
+    if (iName < 0 || iKana < 0 || iRoom < 0) {
+      toast("ヘッダ行に「氏名」「フリガナ」「部屋」が必要です", "err");
+      return;
+    }
+    const iBirthday = idx("生年月日"), iGender = idx("性別"), iCare = idx("介護度"), iMoveIn = idx("入居日");
+    const iKpName = idx("キーパーソン氏名"), iKpRel = idx("キーパーソン続柄"), iKpPhone = idx("キーパーソン電話");
+    const iBread = idx("朝パン(1/0)"), iJuice = idx("朝ジュース(1/0)");
+    const iLunch = idx("昼業者(A社/B社/なし)"), iDinner = idx("夕業者(A社/B社/なし)");
+    const iForm = idx("食事形態"), iFluid = idx("飲水形態");
+
+    const ok: User[] = [];
+    const errors: string[] = [];
+
+    dataRows.forEach((row, i) => {
+      const rowNo = i + 2; // ヘッダ込み
+      const name = row[iName]?.trim();
+      const kana = row[iKana]?.trim();
+      const room = row[iRoom]?.trim();
+      if (!name || !kana) { errors.push(`${rowNo}行目：氏名・フリガナは必須`); return; }
+      if (room && !/^[A-Za-z0-9-]+$/.test(room)) { errors.push(`${rowNo}行目：部屋「${room}」は半角英数字とハイフンのみ`); return; }
+      const birthday = (iBirthday >= 0 ? row[iBirthday] : "")?.trim() || "";
+      let age = 0;
+      if (birthday) age = new Date().getFullYear() - new Date(birthday).getFullYear();
+      const gender = ((iGender >= 0 ? row[iGender] : "")?.trim() || "女") as User["gender"];
+      const care = (iCare >= 0 ? row[iCare] : "")?.trim() || "要介護1";
+      const moveIn = (iMoveIn >= 0 ? row[iMoveIn] : "")?.trim() || "";
+      const u: User = {
+        id: genId("U"),
+        facilityId: defaultFacilityId,
+        name, kana, room, birthday, age, gender,
+        status: "入居中",
+        moveInDate: moveIn,
+        careLevel: care,
+        keyPerson: {
+          name: (iKpName >= 0 ? row[iKpName] : "")?.trim() || "",
+          relation: (iKpRel >= 0 ? row[iKpRel] : "")?.trim() || "",
+          phone: (iKpPhone >= 0 ? row[iKpPhone] : "")?.trim() || "",
+        },
+        meal: {
+          breakfastBread: (iBread >= 0 ? row[iBread] : "0")?.trim() === "1",
+          breakfastJuice: (iJuice >= 0 ? row[iJuice] : "0")?.trim() === "1",
+          lunchVendor: parseVendor(iLunch >= 0 ? row[iLunch] : ""),
+          dinnerVendor: parseVendor(iDinner >= 0 ? row[iDinner] : ""),
+          form: ((iForm >= 0 ? row[iForm] : "")?.trim() || "普通食") as User["meal"]["form"],
+          fluidForm: ((iFluid >= 0 ? row[iFluid] : "")?.trim() || "常水") as User["meal"]["fluidForm"],
+          regularCancels: [],
+        },
+        allergies: [],
+        restrictions: [],
+        monthlyBilling: emptyBilling(),
+        unpaidDocs: 0,
+        openTasks: 0,
+      };
+      ok.push(u);
+    });
+
+    setCsvPreview({ ok, errors });
+  }
+
+  function commitImport() {
+    if (!csvPreview) return;
+    setUsers((cur) => [...cur, ...csvPreview.ok]);
+    logActivity(`CSV取込で利用者 ${csvPreview.ok.length} 名を一括登録`);
+    toast(`${csvPreview.ok.length} 名を登録しました`, "ok");
+    setCsvOpen(false);
+    setCsvText("");
+    setCsvPreview(null);
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      setCsvText(text);
+      setCsvPreview(null);
+    };
+    reader.readAsText(file, "UTF-8");
+  }
 
   function exportCsv() {
     downloadCsv(`利用者一覧_${new Date().toISOString().slice(0, 10)}.csv`, [
@@ -77,6 +178,7 @@ export default function UsersPage() {
           </p>
         </div>
         <div className="flex gap-2 no-print">
+          <button onClick={() => { setCsvText(""); setCsvPreview(null); setCsvOpen(true); }} className="btn">CSV取込</button>
           <button onClick={exportCsv} className="btn" disabled={users.length === 0}>CSV出力</button>
           <button onClick={doPrint} className="btn">印刷</button>
           <button onClick={() => { setDraft(emptyUserDraft(defaultFacilityId)); setNewOpen(true); }} className="btn btn-primary">＋ 新規利用者</button>
@@ -121,9 +223,14 @@ export default function UsersPage() {
                     {users.length === 0 ? "利用者がまだ登録されていません。" : "該当する利用者がありません。"}
                   </div>
                   {users.length === 0 && (
-                    <button onClick={() => { setDraft(emptyUserDraft()); setNewOpen(true); }} className="btn btn-primary">
-                      ＋ 最初の利用者を登録する
-                    </button>
+                    <div className="flex gap-2 justify-center">
+                      <button onClick={() => { setDraft(emptyUserDraft(defaultFacilityId)); setNewOpen(true); }} className="btn btn-primary">
+                        ＋ 最初の利用者を登録
+                      </button>
+                      <button onClick={() => { setCsvText(""); setCsvPreview(null); setCsvOpen(true); }} className="btn">
+                        CSVから一括登録
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -213,8 +320,97 @@ export default function UsersPage() {
           食事設定・アレルギー・固定費等は登録後、詳細画面から編集できます。
         </div>
       </Modal>
+
+      {/* CSV 一括取込モーダル */}
+      <Modal
+        open={csvOpen}
+        onClose={() => setCsvOpen(false)}
+        title="CSV 一括取込（利用者）"
+        size="lg"
+        footer={
+          <ModalFooter
+            onCancel={() => setCsvOpen(false)}
+            onConfirm={csvPreview ? commitImport : parseImport}
+            cancelLabel="閉じる"
+            confirmLabel={csvPreview ? `${csvPreview.ok.length} 名を登録` : "プレビュー"}
+            extra={<button onClick={downloadTemplate} className="btn btn-sm">テンプレートDL</button>}
+          />
+        }
+      >
+        <div className="bg-info-50/40 border-l-[3px] border-info-600 rounded-r px-3 py-2 mb-3 text-[12px] text-ink-800">
+          💡 まずは「テンプレートDL」で書式をダウンロード → Excel 等で編集 → 下のファイル選択またはテキスト貼付 → 「プレビュー」で確認 → 「登録」で一括投入。
+          <br />
+          必須列：<b>氏名 / フリガナ / 部屋</b>　（部屋は半角英数字とハイフンのみ）
+        </div>
+
+        <div className="space-y-3">
+          <Field label="CSV ファイル">
+            <input type="file" accept=".csv,text/csv" onChange={handleFile} className="w-full text-[12px]" />
+          </Field>
+          <Field label="または貼り付け（テキスト）">
+            <textarea
+              value={csvText}
+              onChange={(e) => { setCsvText(e.target.value); setCsvPreview(null); }}
+              rows={8}
+              className="w-full px-3 py-2 border border-ink-200 rounded font-mono text-[11px]"
+              placeholder="氏名,フリガナ,部屋,..."
+            />
+          </Field>
+
+          {csvPreview && (
+            <div className="card overflow-hidden">
+              <div className="px-3 py-2 border-b border-ink-100 bg-ink-50/60 text-[12px] flex items-center justify-between">
+                <span className="font-semibold">プレビュー：登録対象 {csvPreview.ok.length} 名 / エラー {csvPreview.errors.length} 件</span>
+                <button onClick={() => setCsvPreview(null)} className="text-brand-700 text-[11px] hover:underline">クリア</button>
+              </div>
+              {csvPreview.errors.length > 0 && (
+                <div className="px-3 py-2 bg-err-50 border-b border-err-200 text-[11px] text-err-700">
+                  <div className="font-semibold mb-1">エラー（取込から除外）</div>
+                  <ul className="list-disc list-inside">
+                    {csvPreview.errors.map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                </div>
+              )}
+              <div className="max-h-48 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-ink-50 sticky top-0">
+                    <tr className="text-left text-ink-600">
+                      <th className="px-2 py-1">氏名</th>
+                      <th className="px-2 py-1">フリガナ</th>
+                      <th className="px-2 py-1">部屋</th>
+                      <th className="px-2 py-1">介護度</th>
+                      <th className="px-2 py-1">入居日</th>
+                      <th className="px-2 py-1">食事</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvPreview.ok.map((u) => (
+                      <tr key={u.id} className="border-b border-ink-100">
+                        <td className="px-2 py-1">{u.name}</td>
+                        <td className="px-2 py-1">{u.kana}</td>
+                        <td className="px-2 py-1 num">{u.room}</td>
+                        <td className="px-2 py-1">{u.careLevel}</td>
+                        <td className="px-2 py-1 num">{u.moveInDate}</td>
+                        <td className="px-2 py-1 text-ink-600">
+                          {u.meal.breakfastBread ? "🍞" : ""}{u.meal.breakfastJuice ? "🥤" : ""} 昼{u.meal.lunchVendor === "なし" ? "—" : u.meal.lunchVendor} 夕{u.meal.dinnerVendor === "なし" ? "—" : u.meal.dinnerVendor}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
+}
+
+function parseVendor(v: string | undefined): User["meal"]["lunchVendor"] {
+  const t = (v ?? "").trim();
+  if (t === "A社" || t === "B社") return t;
+  return "なし";
 }
 
 function MealIcons({ u }: { u: User }) {

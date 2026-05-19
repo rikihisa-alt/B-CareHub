@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import type {
   User, Task, Handover, Announcement, Activity, DailyGood, DocItem, StaffMember,
-  MealConfirmation, SingleCancellation,
+  MealConfirmation, SingleCancellation, RegularService, BillingLineItem,
 } from "./data";
 
 export type Facility = {
@@ -84,6 +84,14 @@ export function useSingleCancellations() { return useStored<SingleCancellation[]
 export function useBillingConfirmations() {
   // key: `${userId}_${year}-${month}`
   return useStored<Record<string, boolean>>("billingConfirmations", {});
+}
+
+export function useRegularServices() {
+  return useStored<RegularService[]>("regularServices", []);
+}
+
+export function useBillingLineItems() {
+  return useStored<BillingLineItem[]>("billingLineItems", []);
 }
 
 export function useStaff() {

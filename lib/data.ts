@@ -72,6 +72,100 @@ export type BillingBreakdown = {
   other: number;
 };
 
+export type BillingCategory =
+  | "家賃" | "共益費" | "水道光熱費" | "管理費" | "生活支援費"
+  | "食費" | "日用品" | "介護" | "看護" | "立替" | "保険外サービス" | "その他";
+
+/** 定期サービス（毎月定額） */
+export type RegularService = {
+  id: string;
+  userId: string;
+  facilityId?: string;
+  name: string;            // 表示名 例：家賃／共益費／理美容（月1）
+  category: BillingCategory;
+  amount: number;          // 月額
+  validFrom: string;       // YYYY-MM-DD 開始日
+  validTo?: string;        // YYYY-MM-DD 終了日（任意）
+  active: boolean;
+  note?: string;
+};
+
+/** 月次請求の明細行（提供日ごと・サービスごと） */
+export type BillingLineItem = {
+  id: string;
+  userId: string;
+  facilityId?: string;
+  ym: string;                  // 年月 "YYYY-MM"
+  category: BillingCategory;
+  name: string;                // 項目名 例：朝食パン／おむつL／理美容代
+  date?: string;               // 提供日 YYYY-MM-DD（任意）
+  quantity: number;
+  unitPrice: number;
+  amount: number;              // quantity × unitPrice
+  source?: "manual" | "regular" | "meal-auto" | "goods-auto";
+  note?: string;
+};
+
+/** 明細行を BillingBreakdown に集約 */
+export function aggregateBilling(items: BillingLineItem[]): BillingBreakdown {
+  const b = emptyBilling();
+  for (const it of items) {
+    switch (it.category) {
+      case "家賃":         b.rent    += it.amount; break;
+      case "共益費":       b.common  += it.amount; break;
+      case "水道光熱費":   b.utility += it.amount; break;
+      case "管理費":       b.admin   += it.amount; break;
+      case "生活支援費":   b.admin   += it.amount; break;
+      case "食費":         b.meal    += it.amount; break;
+      case "日用品":       b.goods   += it.amount; break;
+      case "介護":         b.care    += it.amount; break;
+      case "看護":         b.nursing += it.amount; break;
+      case "立替":         b.advance += it.amount; break;
+      case "保険外サービス": b.other += it.amount; break;
+      case "その他":       b.other   += it.amount; break;
+    }
+  }
+  return b;
+}
+
+/** 定期サービス → 明細行に展開（指定年月の請求対象のみ） */
+export function expandRegularServices(services: RegularService[], ym: string, userId?: string): BillingLineItem[] {
+  const monthStart = `${ym}-01`;
+  const monthEnd = `${ym}-31`;
+  return services
+    .filter((s) => s.active)
+    .filter((s) => !userId || s.userId === userId)
+    .filter((s) => s.validFrom <= monthEnd && (!s.validTo || s.validTo >= monthStart))
+    .map((s) => ({
+      id: `RS-${s.id}-${ym}`,
+      userId: s.userId,
+      facilityId: s.facilityId,
+      ym,
+      category: s.category,
+      name: s.name,
+      quantity: 1,
+      unitPrice: s.amount,
+      amount: s.amount,
+      source: "regular" as const,
+      note: s.note,
+    }));
+}
+
+/** 利用者の特定月の請求合計を算出 */
+export function computeUserBilling(
+  userId: string,
+  ym: string,
+  services: RegularService[],
+  lineItems: BillingLineItem[],
+): { items: BillingLineItem[]; breakdown: BillingBreakdown; total: number } {
+  const expanded = expandRegularServices(services, ym, userId);
+  const manual = lineItems.filter((i) => i.userId === userId && i.ym === ym);
+  const items = [...expanded, ...manual];
+  const breakdown = aggregateBilling(items);
+  const total = Object.values(breakdown).reduce((s, n) => s + n, 0);
+  return { items, breakdown, total };
+}
+
 export type Task = {
   id: string;
   facilityId?: string;

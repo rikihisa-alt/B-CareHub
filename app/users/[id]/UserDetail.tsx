@@ -2,8 +2,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { totalOf, jpy, type User } from "@/lib/data";
-import { useTasks, useHandovers, logActivity, genId, todayIso, nowIso } from "@/lib/store";
+import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, computeUserBilling } from "@/lib/data";
+import {
+  useTasks, useHandovers, useRegularServices, useBillingLineItems,
+  logActivity, genId, todayIso, nowIso,
+} from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
@@ -37,6 +40,10 @@ export function UserDetail({
   const [tab, setTab] = useState<Tab>("info");
   const [, setTasks] = useTasks();
   const [, setHandovers] = useHandovers();
+  const [services, setServices] = useRegularServices();
+  const [lineItems, setLineItems] = useBillingLineItems();
+  const [billingYm, setBillingYm] = useState(todayIso().slice(0, 7));
+  const userBilling = computeUserBilling(user.id, billingYm, services, lineItems);
 
   type Dialog = "status" | "meal" | "allergy" | "task" | "handover" | "billing" | "delete" | null;
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -54,8 +61,7 @@ export function UserDetail({
   const [taskForm, setTaskForm] = useState({ title: "", due: todayIso(), priority: "中" as "高" | "中" | "低" });
   const [handoverForm, setHandoverForm] = useState({ content: "", important: false });
 
-  const b = user.monthlyBilling;
-  const total = totalOf(user);
+  const total = userBilling.total;
   const hasAllergy = user.allergies.length > 0 || user.restrictions.length > 0;
 
   // ===== 保存処理 =====
@@ -141,19 +147,10 @@ export function UserDetail({
   }
 
   function exportBillingCsv() {
-    downloadCsv(`${user.name}_2026-05_請求明細.csv`, [
-      ["区分", "項目", "金額"],
-      ["固定費", "家賃", b.rent],
-      ["固定費", "共益費", b.common],
-      ["固定費", "水道光熱費", b.utility],
-      ["固定費", "管理費", b.admin],
-      ["変動費", "食費", b.meal],
-      ["変動費", "日用品費", b.goods],
-      ["介護", "介護保険自己負担額", b.care],
-      ["看護", "訪問看護自己負担額", b.nursing],
-      ["立替", "立替金", b.advance],
-      ["その他", "その他費用", b.other],
-      ["", "合計", total],
+    downloadCsv(`${user.name}_${billingYm}_請求明細.csv`, [
+      ["年月", "区分", "項目", "提供日", "数量", "単価", "金額", "種別"],
+      ...userBilling.items.map((i) => [billingYm, i.category, i.name, i.date ?? "—", i.quantity, i.unitPrice, i.amount, i.source ?? "manual"]),
+      ["", "", "合計", "", "", "", total, ""],
     ]);
   }
 
@@ -246,7 +243,38 @@ export function UserDetail({
       )}
       {tab === "billing" && (
         <BillingTab
-          user={user} total={total}
+          user={user}
+          ym={billingYm}
+          setYm={setBillingYm}
+          billing={userBilling}
+          services={services.filter((s) => s.userId === user.id)}
+          lineItems={lineItems.filter((i) => i.userId === user.id && i.ym === billingYm)}
+          onAddService={(svc) => {
+            setServices((cur) => [...cur, svc]);
+            logActivity(`${user.name} 様 に定期サービス「${svc.name}」を追加`);
+            toast("定期サービスを追加しました", "ok");
+          }}
+          onUpdateService={(svc) => {
+            setServices((cur) => cur.map((s) => s.id === svc.id ? svc : s));
+            toast("定期サービスを更新しました", "ok");
+          }}
+          onRemoveService={(id) => {
+            setServices((cur) => cur.filter((s) => s.id !== id));
+            toast("削除しました", "ok");
+          }}
+          onAddItem={(it) => {
+            setLineItems((cur) => [...cur, it]);
+            logActivity(`${user.name} 様 ${billingYm} に明細「${it.name}」を追加`);
+            toast("明細を追加しました", "ok");
+          }}
+          onUpdateItem={(it) => {
+            setLineItems((cur) => cur.map((x) => x.id === it.id ? it : x));
+            toast("明細を更新しました", "ok");
+          }}
+          onRemoveItem={(id) => {
+            setLineItems((cur) => cur.filter((x) => x.id !== id));
+            toast("削除しました", "ok");
+          }}
           onExportCsv={exportBillingCsv}
           onPdf={() => toast("請求書PDFの出力は Phase 2 で実装予定", "info")}
           onConfirm={() => setDialog("billing")}
@@ -490,51 +518,278 @@ function AllergyTab({ user, hasAllergy, onEdit }: { user: User; hasAllergy: bool
   );
 }
 
+const BILLING_CATEGORIES: BillingCategory[] = [
+  "家賃", "共益費", "水道光熱費", "管理費", "生活支援費",
+  "食費", "日用品", "介護", "看護", "立替", "保険外サービス", "その他",
+];
+
 function BillingTab({
-  user, total, onExportCsv, onPdf, onConfirm,
-}: { user: User; total: number; onExportCsv: () => void; onPdf: () => void; onConfirm: () => void }) {
-  const b = user.monthlyBilling;
+  user, ym, setYm, billing, services, lineItems,
+  onAddService, onUpdateService, onRemoveService,
+  onAddItem, onUpdateItem, onRemoveItem,
+  onExportCsv, onPdf, onConfirm,
+}: {
+  user: User;
+  ym: string;
+  setYm: (ym: string) => void;
+  billing: ReturnType<typeof computeUserBilling>;
+  services: RegularService[];
+  lineItems: BillingLineItem[];
+  onAddService: (s: RegularService) => void;
+  onUpdateService: (s: RegularService) => void;
+  onRemoveService: (id: string) => void;
+  onAddItem: (i: BillingLineItem) => void;
+  onUpdateItem: (i: BillingLineItem) => void;
+  onRemoveItem: (id: string) => void;
+  onExportCsv: () => void;
+  onPdf: () => void;
+  onConfirm: () => void;
+}) {
+  const [svcOpen, setSvcOpen] = useState<RegularService | "new" | null>(null);
+  const [itemOpen, setItemOpen] = useState<BillingLineItem | "new" | null>(null);
+  const [svcDraft, setSvcDraft] = useState<Omit<RegularService, "id" | "userId">>({
+    name: "", category: "家賃", amount: 0, validFrom: todayIso(), active: true,
+  });
+  const [itemDraft, setItemDraft] = useState<Omit<BillingLineItem, "id" | "userId" | "ym" | "amount">>({
+    category: "食費", name: "", date: "", quantity: 1, unitPrice: 0, source: "manual",
+  });
+
+  function openAddService() {
+    setSvcDraft({ name: "", category: "家賃", amount: 0, validFrom: ym + "-01", active: true });
+    setSvcOpen("new");
+  }
+  function openEditService(s: RegularService) {
+    setSvcDraft({ name: s.name, category: s.category, amount: s.amount, validFrom: s.validFrom, validTo: s.validTo, active: s.active, note: s.note });
+    setSvcOpen(s);
+  }
+  function saveService() {
+    if (!svcDraft.name.trim()) { toast("項目名を入力してください", "warn"); return; }
+    if (svcDraft.amount <= 0) { toast("金額は 1 円以上を入力してください", "warn"); return; }
+    if (svcOpen === "new") {
+      onAddService({
+        id: genId("RS"), userId: user.id, facilityId: user.facilityId,
+        ...svcDraft,
+      });
+    } else if (svcOpen) {
+      onUpdateService({ ...svcOpen, ...svcDraft });
+    }
+    setSvcOpen(null);
+  }
+
+  function openAddItem() {
+    setItemDraft({ category: "食費", name: "", date: ym + "-01", quantity: 1, unitPrice: 0, source: "manual" });
+    setItemOpen("new");
+  }
+  function openEditItem(it: BillingLineItem) {
+    setItemDraft({ category: it.category, name: it.name, date: it.date, quantity: it.quantity, unitPrice: it.unitPrice, source: it.source, note: it.note });
+    setItemOpen(it);
+  }
+  function saveItem() {
+    if (!itemDraft.name.trim()) { toast("項目名を入力してください", "warn"); return; }
+    const amount = itemDraft.quantity * itemDraft.unitPrice;
+    if (itemOpen === "new") {
+      onAddItem({
+        id: genId("BL"), userId: user.id, facilityId: user.facilityId, ym,
+        ...itemDraft, amount,
+      });
+    } else if (itemOpen) {
+      onUpdateItem({ ...itemOpen, ...itemDraft, amount });
+    }
+    setItemOpen(null);
+  }
+
   return (
-    <section>
-      <div className="flex items-end justify-between mb-2">
-        <h2 className="text-[14px] font-semibold text-ink-800">2026年5月 請求予定明細</h2>
+    <section className="space-y-5">
+      {/* 月切替 */}
+      <div className="flex items-end justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-[14px] font-semibold text-ink-800">対象月</h2>
+          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="px-2 py-1 border border-ink-200 rounded text-[13px] num" />
+        </div>
         <div className="flex gap-2">
-          <button onClick={onExportCsv} className="btn">CSV</button>
-          <button onClick={onPdf} className="btn">PDF</button>
-          <button onClick={onConfirm} className="btn btn-primary">請求確定</button>
+          <button onClick={onExportCsv} className="btn btn-sm">CSV</button>
+          <button onClick={onPdf} className="btn btn-sm">PDF</button>
+          <button onClick={onConfirm} className="btn btn-sm btn-primary">請求確定</button>
         </div>
       </div>
+
+      {/* 定期サービス */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[13px] font-semibold text-ink-700">定期サービス（毎月自動計上）</h3>
+          <button onClick={openAddService} className="btn btn-sm">＋ 定期サービスを追加</button>
+        </div>
+        <div className="card overflow-hidden">
+          {services.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[12px] text-ink-500">
+              家賃・共益費・水光熱費・生活支援費など、毎月かかる項目をここに登録すると、毎月自動で請求に計上されます。
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-100 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-4 py-2 text-[11px] font-semibold w-32">区分</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold">項目</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-28">月額</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-44">有効期間</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-20 text-center">状態</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-20 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((s) => (
+                  <tr key={s.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                    <td className="px-4 py-2 text-[12px] text-ink-700">{s.category}</td>
+                    <td className="px-4 py-2 text-ink-900">{s.name}</td>
+                    <td className="px-4 py-2 text-right num font-semibold">{jpy(s.amount)}</td>
+                    <td className="px-4 py-2 num text-[11px] text-ink-600">{s.validFrom}{s.validTo ? `〜${s.validTo}` : "〜"}</td>
+                    <td className="px-4 py-2 text-center text-[11px]">
+                      {s.active ? <span className="text-ok-700">有効</span> : <span className="text-ink-400">停止</span>}
+                    </td>
+                    <td className="px-4 py-2 text-center flex gap-1 justify-center">
+                      <button onClick={() => openEditService(s)} className="btn btn-sm">編集</button>
+                      <button onClick={() => { if (window.confirm(`「${s.name}」を削除します`)) onRemoveService(s.id); }} className="btn btn-sm text-err-700">×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* 当月の明細 */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[13px] font-semibold text-ink-700">{ym} の明細（個別請求項目）</h3>
+          <button onClick={openAddItem} className="btn btn-sm">＋ 明細を追加</button>
+        </div>
+        <div className="card overflow-hidden">
+          {lineItems.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[12px] text-ink-500">
+              食事・日用品の使用、立替金、保険外サービス（理美容・送迎など）は、提供のたびにここへ追加します。<br />
+              数量×単価で金額が自動計算されます。
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-100 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-4 py-2 text-[11px] font-semibold w-28">提供日</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-24">区分</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold">項目</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-16">数量</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-24">単価</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-24">金額</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-20 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineItems.map((it) => (
+                  <tr key={it.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                    <td className="px-4 py-2 num text-[11px] text-ink-700">{it.date ?? "—"}</td>
+                    <td className="px-4 py-2 text-[12px] text-ink-700">{it.category}</td>
+                    <td className="px-4 py-2 text-ink-900">{it.name}</td>
+                    <td className="px-4 py-2 text-right num">{it.quantity}</td>
+                    <td className="px-4 py-2 text-right num">{jpy(it.unitPrice)}</td>
+                    <td className="px-4 py-2 text-right num font-semibold">{jpy(it.amount)}</td>
+                    <td className="px-4 py-2 text-center flex gap-1 justify-center">
+                      <button onClick={() => openEditItem(it)} className="btn btn-sm">編集</button>
+                      <button onClick={() => { if (window.confirm(`「${it.name}」を削除します`)) onRemoveItem(it.id); }} className="btn btn-sm text-err-700">×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* 請求合計内訳 */}
       <div className="card overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-ink-100 bg-ink-50/60 text-[12px] font-semibold text-ink-700">{ym} 請求合計の内訳</div>
         <table className="w-full text-[13px]">
-          <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
-            <tr className="text-left">
-              <th className="px-4 py-2.5 text-[11px] font-semibold w-24">区分</th>
-              <th className="px-4 py-2.5 text-[11px] font-semibold">項目</th>
-              <th className="px-4 py-2.5 text-[11px] font-semibold text-right w-32">金額</th>
-            </tr>
-          </thead>
           <tbody>
-            <BillingRow cat="固定費" name="家賃" amount={b.rent} />
-            <BillingRow cat="固定費" name="共益費" amount={b.common} />
-            <BillingRow cat="固定費" name="水道光熱費" amount={b.utility} />
-            <BillingRow cat="固定費" name="管理費" amount={b.admin} />
-            <BillingRow cat="変動費" name="食費" amount={b.meal} />
-            <BillingRow cat="変動費" name="日用品費" amount={b.goods} />
-            <BillingRow cat="介護" name="介護保険自己負担額" amount={b.care} />
-            {b.nursing > 0 && <BillingRow cat="看護" name="訪問看護自己負担額" amount={b.nursing} />}
-            {b.advance > 0 && <BillingRow cat="立替" name="立替金" amount={b.advance} />}
-            {b.other > 0 && <BillingRow cat="その他" name="その他費用" amount={b.other} />}
+            <BillingSum label="家賃" v={billing.breakdown.rent} />
+            <BillingSum label="共益費" v={billing.breakdown.common} />
+            <BillingSum label="水道光熱費" v={billing.breakdown.utility} />
+            <BillingSum label="管理費・生活支援費" v={billing.breakdown.admin} />
+            <BillingSum label="食費" v={billing.breakdown.meal} />
+            <BillingSum label="日用品費" v={billing.breakdown.goods} />
+            <BillingSum label="介護自己負担" v={billing.breakdown.care} />
+            <BillingSum label="看護自己負担" v={billing.breakdown.nursing} />
+            <BillingSum label="立替金" v={billing.breakdown.advance} />
+            <BillingSum label="その他・保険外サービス" v={billing.breakdown.other} />
             <tr className="bg-brand-50 border-t border-ink-200">
-              <td className="px-4 py-3 text-[13px] font-semibold text-ink-900" colSpan={2}>請求合計</td>
-              <td className="px-4 py-3 text-right num text-[15px] font-bold text-brand-700">{jpy(total)}</td>
+              <td className="px-4 py-3 text-[13px] font-semibold text-ink-900">請求合計</td>
+              <td className="px-4 py-3 text-right num text-[15px] font-bold text-brand-700">{jpy(billing.total)}</td>
             </tr>
           </tbody>
         </table>
-        <div className="px-4 py-2.5 border-t border-ink-100 bg-ink-50/60 text-[12px] text-ink-600">
-          固定費・介護料の金額はマスタ・取込から自動入力する設計（Phase 2 で取込実装）。現在は 0 のまま開始されます。
-        </div>
       </div>
+
+      {/* 定期サービス編集モーダル */}
+      <Modal
+        open={svcOpen !== null}
+        onClose={() => setSvcOpen(null)}
+        title={svcOpen === "new" ? "定期サービスを追加" : "定期サービスを編集"}
+        footer={<ModalFooter onCancel={() => setSvcOpen(null)} onConfirm={saveService} />}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="区分">
+            <Select value={svcDraft.category} onChange={(e) => setSvcDraft({ ...svcDraft, category: e.target.value as BillingCategory })}>
+              {BILLING_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </Select>
+          </Field>
+          <Field label="月額"><Input type="number" value={svcDraft.amount} onChange={(e) => setSvcDraft({ ...svcDraft, amount: Number(e.target.value) || 0 })} className="num" /></Field>
+          <Field label="項目名" hint="例：家賃／共益費／理美容（月1）">
+            <Input value={svcDraft.name} onChange={(e) => setSvcDraft({ ...svcDraft, name: e.target.value })} />
+          </Field>
+          <Field label="状態">
+            <Select value={svcDraft.active ? "1" : "0"} onChange={(e) => setSvcDraft({ ...svcDraft, active: e.target.value === "1" })}>
+              <option value="1">有効</option><option value="0">停止</option>
+            </Select>
+          </Field>
+          <Field label="開始日"><Input type="date" value={svcDraft.validFrom} onChange={(e) => setSvcDraft({ ...svcDraft, validFrom: e.target.value })} className="num" /></Field>
+          <Field label="終了日（任意）"><Input type="date" value={svcDraft.validTo ?? ""} onChange={(e) => setSvcDraft({ ...svcDraft, validTo: e.target.value || undefined })} className="num" /></Field>
+        </div>
+      </Modal>
+
+      {/* 明細編集モーダル */}
+      <Modal
+        open={itemOpen !== null}
+        onClose={() => setItemOpen(null)}
+        title={itemOpen === "new" ? `${ym} に明細を追加` : "明細を編集"}
+        footer={<ModalFooter onCancel={() => setItemOpen(null)} onConfirm={saveItem} />}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="区分">
+            <Select value={itemDraft.category} onChange={(e) => setItemDraft({ ...itemDraft, category: e.target.value as BillingCategory })}>
+              {BILLING_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </Select>
+          </Field>
+          <Field label="提供日"><Input type="date" value={itemDraft.date ?? ""} onChange={(e) => setItemDraft({ ...itemDraft, date: e.target.value })} className="num" /></Field>
+          <div className="col-span-2">
+            <Field label="項目名" hint="例：朝食パン／おむつL／理美容代／タクシー代">
+              <Input value={itemDraft.name} onChange={(e) => setItemDraft({ ...itemDraft, name: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="数量"><Input type="number" value={itemDraft.quantity} onChange={(e) => setItemDraft({ ...itemDraft, quantity: Number(e.target.value) || 0 })} className="num" /></Field>
+          <Field label="単価"><Input type="number" value={itemDraft.unitPrice} onChange={(e) => setItemDraft({ ...itemDraft, unitPrice: Number(e.target.value) || 0 })} className="num" /></Field>
+        </div>
+        <div className="mt-3 text-right text-[13px] text-ink-700">
+          金額：<b className="num text-brand-700">{jpy(itemDraft.quantity * itemDraft.unitPrice)}</b>
+        </div>
+      </Modal>
     </section>
+  );
+}
+
+function BillingSum({ label, v }: { label: string; v: number }) {
+  return (
+    <tr className="border-b border-ink-100 last:border-b-0">
+      <td className="px-4 py-2 text-[12px] text-ink-700">{label}</td>
+      <td className="px-4 py-2 text-right num text-ink-900">{v === 0 ? <span className="text-ink-300">—</span> : jpy(v)}</td>
+    </tr>
   );
 }
 
@@ -565,12 +820,3 @@ function Row({ k, children }: { k: string; children: React.ReactNode }) {
   );
 }
 
-function BillingRow({ cat, name, amount }: { cat: string; name: string; amount: number }) {
-  return (
-    <tr className="border-b border-ink-100 last:border-b-0">
-      <td className="px-4 py-2.5 text-[11px] text-ink-500">{cat}</td>
-      <td className="px-4 py-2.5 text-ink-900">{name}</td>
-      <td className="px-4 py-2.5 text-right num text-ink-900">{amount === 0 ? <span className="text-ink-300">—</span> : jpy(amount)}</td>
-    </tr>
-  );
-}

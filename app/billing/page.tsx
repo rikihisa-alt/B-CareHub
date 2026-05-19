@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { totalOf, jpy } from "@/lib/data";
-import { useUsers, useBillingConfirmations, useCurrentFacilityId, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { jpy, computeUserBilling, type BillingBreakdown } from "@/lib/data";
+import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, logActivity, todayIso, filterByFacility } from "@/lib/store";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -16,23 +16,37 @@ export default function BillingPage() {
   const [currentFacilityId] = useCurrentFacilityId();
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
   const [confirmations, setConfirmations] = useBillingConfirmations();
+  const [services] = useRegularServices();
+  const [lineItems] = useBillingLineItems();
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const today = todayIso();
-  const ym = today.slice(0, 7);
+  const [ym, setYm] = useState(today.slice(0, 7));
 
-  const sum = (k: BillingKey) => users.reduce((s, u) => s + u.monthlyBilling[k], 0);
-  const totalAll = users.reduce((s, u) => s + totalOf(u), 0);
+  // 各利用者の breakdown を当月分で算出
+  const userBillings = useMemo(() => {
+    const map: Record<string, { breakdown: BillingBreakdown; total: number }> = {};
+    users.forEach((u) => {
+      const { breakdown, total } = computeUserBilling(u.id, ym, services, lineItems);
+      map[u.id] = { breakdown, total };
+    });
+    return map;
+  }, [users, services, lineItems, ym]);
+
+  const sum = (k: BillingKey) => users.reduce((s, u) => s + (userBillings[u.id]?.breakdown[k] ?? 0), 0);
+  const totalAll = users.reduce((s, u) => s + (userBillings[u.id]?.total ?? 0), 0);
   const isConfirmed = (uid: string) => confirmations[`${uid}_${ym}`] === true;
   const confirmedCount = users.filter((u) => isConfirmed(u.id)).length;
-  const suspect = users.filter((u) => u.status === "入居中" && u.monthlyBilling.meal === 0);
+  // 食事系の定期/明細が一つもないのに「入居中」 = 請求漏れ疑い
+  const suspect = users.filter((u) => u.status === "入居中" && (userBillings[u.id]?.breakdown.meal ?? 0) === 0
+    && (u.meal.breakfastBread || u.meal.breakfastJuice || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし"));
 
   function exportCsv() {
     downloadCsv(`月次請求_${ym}.csv`, [
       ["部屋", "氏名", "家賃", "共益", "水光熱", "管理", "食費", "日用品", "介護", "看護", "立替", "その他", "合計"],
       ...users.map((u) => {
-        const b = u.monthlyBilling;
-        return [u.room, u.name, b.rent, b.common, b.utility, b.admin, b.meal, b.goods, b.care, b.nursing, b.advance, b.other, totalOf(u)];
+        const b = userBillings[u.id]?.breakdown;
+        return b ? [u.room, u.name, b.rent, b.common, b.utility, b.admin, b.meal, b.goods, b.care, b.nursing, b.advance, b.other, userBillings[u.id].total] : [];
       }),
     ]);
   }
@@ -52,7 +66,8 @@ export default function BillingPage() {
         <div>
           <h1 className="text-[22px] font-semibold text-ink-900">月次請求管理</h1>
           <p className="text-[12px] text-ink-500 mt-0.5">
-            {ym} 分 ／ 利用者 {users.length}名 ／ 合計 <span className="font-bold text-brand-700 num">{jpy(totalAll)}</span> ／ 確定 {confirmedCount}件 ／ 未確定 {users.length - confirmedCount}件
+            <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="px-2 py-0.5 border border-ink-200 rounded text-[12px] num mr-2" />
+            利用者 {users.length}名 ／ 合計 <span className="font-bold text-brand-700 num">{jpy(totalAll)}</span> ／ 確定 {confirmedCount}件 ／ 未確定 {users.length - confirmedCount}件
           </p>
         </div>
         <div className="flex gap-2 no-print">
@@ -98,8 +113,8 @@ export default function BillingPage() {
             </thead>
             <tbody>
               {users.map((u) => {
-                const b = u.monthlyBilling;
-                const total = totalOf(u);
+                const b = userBillings[u.id]?.breakdown ?? { rent:0,common:0,utility:0,admin:0,meal:0,goods:0,care:0,nursing:0,advance:0,other:0 };
+                const total = userBillings[u.id]?.total ?? 0;
                 const conf = isConfirmed(u.id);
                 return (
                   <tr key={u.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
