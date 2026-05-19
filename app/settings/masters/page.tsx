@@ -3,11 +3,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
-import { Field, Input, ModalFooter } from "@/components/ui/primitives";
+import { Field, Input, Select, ModalFooter, Pill } from "@/components/ui/primitives";
 import {
   clearAllData, exportAllData, importAllData, logActivity, genId,
-  useFacilities, useCurrentFacilityId, type Facility, type BankAccount,
+  useFacilities, useCurrentFacilityId, useRooms,
+  type Facility, type BankAccount,
 } from "@/lib/store";
+import { type Room, type RoomType } from "@/lib/data";
 
 const CATEGORIES = [
   { group: "食事", items: [
@@ -41,9 +43,48 @@ function emptyBankAccount(): BankAccount {
   return { bank: "", branch: "", type: "普通", number: "", holder: "" };
 }
 
+const ROOM_TYPES: RoomType[] = ["居室", "事務所", "倉庫", "共用部", "その他"];
+
+type RoomDraft = Omit<Room, "id">;
+function emptyRoomDraft(facilityId?: string): RoomDraft {
+  return { facilityId, roomNo: "", type: "居室", capacity: undefined, note: "" };
+}
+
 export default function MastersPage() {
   const [facilities, setFacilities] = useFacilities();
   const [currentFacilityId, setCurrentFacilityId] = useCurrentFacilityId();
+  const [rooms, setRooms] = useRooms();
+  const [addRoomOpen, setAddRoomOpen] = useState(false);
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const defaultFacilityForRoom = currentFacilityId ?? facilities[0]?.id;
+  const [roomDraft, setRoomDraft] = useState<RoomDraft>(emptyRoomDraft(defaultFacilityForRoom));
+  const [roomEditDraft, setRoomEditDraft] = useState<Room | null>(null);
+
+  function addRoom() {
+    if (!roomDraft.roomNo.trim()) { toast("部屋番号・名称を入力してください", "warn"); return; }
+    setRooms((cur) => [...cur, { id: genId("R"), ...roomDraft }]);
+    logActivity(`部屋「${roomDraft.roomNo}」(${roomDraft.type})を登録`);
+    toast("部屋を登録しました", "ok");
+    setAddRoomOpen(false);
+    setRoomDraft(emptyRoomDraft(defaultFacilityForRoom));
+  }
+  function saveRoom() {
+    if (!roomEditDraft) return;
+    if (!roomEditDraft.roomNo.trim()) { toast("部屋番号・名称を入力してください", "warn"); return; }
+    setRooms((cur) => cur.map((r) => r.id === roomEditDraft.id ? roomEditDraft : r));
+    logActivity(`部屋「${roomEditDraft.roomNo}」を更新`);
+    toast("部屋を更新しました", "ok");
+    setEditingRoom(null); setRoomEditDraft(null);
+  }
+  function removeRoom(id: string) {
+    const r = rooms.find((x) => x.id === id);
+    if (!r) return;
+    if (!window.confirm(`部屋「${r.roomNo}」を削除します。関連する光熱費データは残ります。よろしいですか？`)) return;
+    setRooms((cur) => cur.filter((x) => x.id !== id));
+    logActivity(`部屋「${r.roomNo}」を削除`);
+    toast("削除しました", "ok");
+    setEditingRoom(null); setRoomEditDraft(null);
+  }
 
   const [addFacilityOpen, setAddFacilityOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<FacilityDraft>(emptyFacilityDraft());
@@ -201,6 +242,55 @@ export default function MastersPage() {
         </p>
       </section>
 
+      {/* 部屋一覧 */}
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider">部屋・スペース一覧</h2>
+          <button onClick={() => { setRoomDraft(emptyRoomDraft(defaultFacilityForRoom)); setAddRoomOpen(true); }} className="btn btn-sm btn-primary">＋ 部屋を追加</button>
+        </div>
+        <div className="card overflow-hidden">
+          {rooms.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[13px] text-ink-500">
+              <div className="mb-2">部屋がまだ登録されていません。</div>
+              <p className="text-[11px]">居室（利用者の部屋）だけでなく、<b>事務所・倉庫・共用部</b> など、光熱費が発生する全てのスペースを登録できます。</p>
+            </div>
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead className="bg-ink-50 border-b border-ink-100 text-ink-600">
+                <tr className="text-left">
+                  <th className="px-4 py-2 text-[11px] font-semibold w-32">部屋番号 ・ 名称</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-24">用途</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-32">所属施設</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold text-right w-20">定員</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold">備考</th>
+                  <th className="px-4 py-2 text-[11px] font-semibold w-24 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rooms.map((r) => {
+                  const f = facilities.find((x) => x.id === r.facilityId);
+                  return (
+                    <tr key={r.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
+                      <td className="px-4 py-2.5 font-medium text-ink-900">{r.roomNo}</td>
+                      <td className="px-4 py-2.5"><Pill tone={r.type === "居室" ? "ok" : r.type === "事務所" ? "info" : "neutral"}>{r.type}</Pill></td>
+                      <td className="px-4 py-2.5 text-[12px] text-ink-700">{f?.name ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-right num text-ink-700">{r.capacity ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-ink-600">{r.note || "—"}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <button onClick={() => { setRoomEditDraft({ ...r }); setEditingRoom(r); }} className="btn btn-sm">編集</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <p className="text-[11px] text-ink-500 mt-2">
+          ※ 部屋を登録しておくと、光熱費管理画面のプルダウンに反映されます。事務所・倉庫など利用者がいないスペースも登録できます。
+        </p>
+      </section>
+
       {CATEGORIES.map((cat) => (
         <section key={cat.group}>
           <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider mb-2">{cat.group}</h2>
@@ -233,6 +323,32 @@ export default function MastersPage() {
         ※ 施設情報以外のマスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面を提供します。
         <Link href="/admin/audit-logs" className="text-brand-700 hover:underline ml-2">監査ログを見る →</Link>
       </div>
+
+      {/* 部屋追加 */}
+      <Modal
+        open={addRoomOpen}
+        onClose={() => setAddRoomOpen(false)}
+        title="部屋・スペースを追加"
+        footer={<ModalFooter onCancel={() => setAddRoomOpen(false)} onConfirm={addRoom} confirmLabel="登録" />}
+      >
+        <RoomForm draft={roomDraft} setDraft={(d) => setRoomDraft({ ...roomDraft, ...d })} facilities={facilities} />
+      </Modal>
+
+      {/* 部屋編集 */}
+      <Modal
+        open={editingRoom !== null}
+        onClose={() => { setEditingRoom(null); setRoomEditDraft(null); }}
+        title={`部屋編集：${editingRoom?.roomNo ?? ""}`}
+        footer={
+          <ModalFooter
+            onCancel={() => { setEditingRoom(null); setRoomEditDraft(null); }}
+            onConfirm={saveRoom}
+            extra={editingRoom && <button onClick={() => removeRoom(editingRoom.id)} className="btn btn-sm text-err-700">削除</button>}
+          />
+        }
+      >
+        {roomEditDraft && <RoomForm draft={roomEditDraft} setDraft={(d) => setRoomEditDraft({ ...roomEditDraft, ...d })} facilities={facilities} />}
+      </Modal>
 
       {/* 施設追加 */}
       <Modal
@@ -325,6 +441,41 @@ export default function MastersPage() {
         <p className="text-[13px]">本端末のブラウザに保存されているすべての B-CareHub データ（施設・利用者・食事・請求・タスク・申し送り・マスタ等）を削除します。</p>
         <p className="text-[12px] text-ink-500 mt-2">削除前にバックアップを書き出すことを推奨します。</p>
       </Modal>
+    </div>
+  );
+}
+
+function RoomForm({
+  draft, setDraft, facilities,
+}: {
+  draft: RoomDraft | Room;
+  setDraft: (d: Partial<Room>) => void;
+  facilities: { id: string; name: string }[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="部屋番号・名称（必須）" hint="例：101 / A棟2F / 事務所 / 倉庫A / 1F廊下">
+          <Input value={draft.roomNo} onChange={(e) => setDraft({ roomNo: e.target.value })} />
+        </Field>
+        <Field label="用途">
+          <Select value={draft.type} onChange={(e) => setDraft({ type: e.target.value as RoomType })}>
+            {ROOM_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+        <Field label="所属施設">
+          <Select value={draft.facilityId ?? ""} onChange={(e) => setDraft({ facilityId: e.target.value || undefined })}>
+            {facilities.length === 0 && <option value="">— 未登録 —</option>}
+            {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="定員（居室の場合）">
+          <Input type="number" value={draft.capacity ?? ""} onChange={(e) => setDraft({ capacity: Number(e.target.value) || undefined })} className="num" placeholder="例：1" />
+        </Field>
+      </div>
+      <Field label="備考">
+        <Input value={draft.note ?? ""} onChange={(e) => setDraft({ note: e.target.value })} placeholder="例：エアコン2台／窓向き 等" />
+      </Field>
     </div>
   );
 }

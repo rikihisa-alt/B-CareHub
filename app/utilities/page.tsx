@@ -3,9 +3,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { jpy, type UtilityBill, type UtilityType, type TaxRate } from "@/lib/data";
 import {
-  useUtilityBills, useUsers, useFacilities, useCurrentFacilityId,
+  useUtilityBills, useUsers, useRooms, useFacilities, useCurrentFacilityId,
   logActivity, genId, todayIso, filterByFacility,
 } from "@/lib/store";
+import { type Room } from "@/lib/data";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
 import { downloadCsv } from "@/components/ui/helpers";
@@ -17,10 +18,19 @@ type Filter = "all" | "unpaid" | "paid";
 type Draft = Omit<UtilityBill, "id">;
 
 function emptyDraft(facilityId: string | undefined, ym: string): Draft {
+  // 検針期間のデフォルト：前月15日〜当月14日（一般的な電気・ガスの検針サイクル）
+  const [y, m] = ym.split("-").map(Number);
+  const prevDate = new Date(y, m - 2, 15);
+  const curDate = new Date(y, m - 1, 14);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const startDef = `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}-${pad(prevDate.getDate())}`;
+  const endDef = `${curDate.getFullYear()}-${pad(curDate.getMonth() + 1)}-${pad(curDate.getDate())}`;
   return {
     facilityId,
     roomNo: "",
     ym,
+    periodStart: startDef,
+    periodEnd: endDef,
     type: "電気",
     provider: "",
     amount: 0,
@@ -37,6 +47,7 @@ export default function UtilitiesPage() {
   const today = todayIso();
   const [bills, setBills] = useUtilityBills();
   const [users] = useUsers();
+  const [rooms] = useRooms();
   const [facilities] = useFacilities();
   const [currentFacilityId] = useCurrentFacilityId();
 
@@ -67,9 +78,19 @@ export default function UtilitiesPage() {
   const paidTotal = monthBills.filter((b) => b.status === "支払済").reduce((s, b) => s + b.amount, 0);
   const userBilledTotal = monthBills.filter((b) => b.billToUser).reduce((s, b) => s + b.amount, 0);
 
-  // 部屋一覧（重複なし、施設フィルタ済利用者から）
+  // 部屋一覧（施設フィルタ済）
   const scopedUsers = filterByFacility(users, currentFacilityId);
-  const rooms = Array.from(new Set(scopedUsers.map((u) => u.room).filter(Boolean))).sort();
+  const scopedRooms = filterByFacility(rooms, currentFacilityId);
+  // Room マスタの部屋 ＋ 利用者の room フィールド の和集合
+  const roomOptions: { roomNo: string; type?: Room["type"] }[] = useMemo(() => {
+    const masterRoomNos = scopedRooms.map((r) => r.roomNo);
+    const userRoomNos = scopedUsers.map((u) => u.room).filter(Boolean);
+    const all = Array.from(new Set([...masterRoomNos, ...userRoomNos])).sort();
+    return all.map((rn) => ({
+      roomNo: rn,
+      type: scopedRooms.find((r) => r.roomNo === rn)?.type,
+    }));
+  }, [scopedRooms, scopedUsers]);
 
   function userOfRoom(roomNo: string) {
     return scopedUsers.find((u) => u.room === roomNo && u.status !== "退去済");
@@ -77,10 +98,13 @@ export default function UtilitiesPage() {
 
   function exportCsv() {
     downloadCsv(`光熱費_${ym}.csv`, [
-      ["年月", "部屋", "種別", "業者", "金額", "支払状態", "支払日", "入居者請求", "入居者", "備考"],
+      ["請求対象月", "部屋", "用途", "種別", "業者", "検針開始", "検針終了", "金額", "支払状態", "支払日", "入居者請求", "入居者", "備考"],
       ...list.map((b) => {
         const u = userOfRoom(b.roomNo);
-        return [b.ym, b.roomNo, b.type, b.provider ?? "—", b.amount, b.status, b.paidDate ?? "—",
+        const room = scopedRooms.find((r) => r.roomNo === b.roomNo);
+        return [b.ym, b.roomNo, room?.type ?? "—", b.type, b.provider ?? "—",
+                b.periodStart ?? "—", b.periodEnd ?? "—",
+                b.amount, b.status, b.paidDate ?? "—",
                 b.billToUser ? "ON" : "OFF", u?.name ?? "—", b.note ?? ""];
       }),
     ]);
@@ -196,33 +220,47 @@ export default function UtilitiesPage() {
           <table className="w-full text-[13px]">
             <thead className="bg-ink-50 border-b border-ink-200 text-ink-600">
               <tr>
-                <Th className="w-20">部屋</Th>
-                <Th>入居者</Th>
+                <Th className="w-24">部屋</Th>
+                <Th>入居者 / 用途</Th>
                 <Th className="w-20">種別</Th>
-                <Th className="w-32">業者</Th>
+                <Th className="w-28">業者</Th>
+                <Th className="w-36">検針期間</Th>
                 <Th className="w-28" align="right">金額</Th>
                 <Th className="w-24" align="center">支払状態</Th>
-                <Th className="w-28">支払日</Th>
-                <Th className="w-28" align="center">入居者請求</Th>
-                <Th className="w-40" align="center">操作</Th>
+                <Th className="w-24">支払日</Th>
+                <Th className="w-24" align="center">入居者請求</Th>
+                <Th className="w-36" align="center">操作</Th>
               </tr>
             </thead>
             <tbody>
               {list.map((b) => {
                 const u = userOfRoom(b.roomNo);
+                const room = scopedRooms.find((r) => r.roomNo === b.roomNo);
                 return (
                   <tr key={b.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
-                    <td className="px-3 py-2.5 num font-semibold">
-                      <div className="flex items-center gap-2">
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2 num font-semibold">
                         {b.roomNo}
                         {currentFacilityId === null && <FacilityLabel facilityId={b.facilityId} />}
                       </div>
+                      {room && <div className="text-[10px] text-ink-500 mt-0.5">{room.type}</div>}
                     </td>
                     <td className="px-3 py-2.5 text-[12px]">
-                      {u ? <Link href={`/users/${u.id}`} className="text-brand-700 hover:underline">{u.name} 様</Link> : <span className="text-ink-400">— 空室 —</span>}
+                      {u ? (
+                        <Link href={`/users/${u.id}`} className="text-brand-700 hover:underline">{u.name} 様</Link>
+                      ) : room ? (
+                        <span className="text-ink-700">{room.type === "居室" ? "— 空室 —" : `（${room.type}）`}</span>
+                      ) : (
+                        <span className="text-ink-400">— 未登録部屋 —</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5"><UtilityChip t={b.type} /></td>
                     <td className="px-3 py-2.5 text-[12px] text-ink-700">{b.provider || "—"}</td>
+                    <td className="px-3 py-2.5 num text-[11px] text-ink-700">
+                      {b.periodStart && b.periodEnd
+                        ? <>{b.periodStart.slice(5).replace("-", "/")}<br />〜 {b.periodEnd.slice(5).replace("-", "/")}</>
+                        : <span className="text-ink-400">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 text-right num font-semibold">{jpy(b.amount)}</td>
                     <td className="px-3 py-2.5 text-center">
                       <Pill tone={b.status === "支払済" ? "ok" : "warn"}>{b.status}</Pill>
@@ -243,7 +281,7 @@ export default function UtilitiesPage() {
             </tbody>
             <tfoot className="bg-ink-50 border-t-2 border-ink-200">
               <tr>
-                <td colSpan={4} className="px-3 py-2.5 text-[13px] font-semibold">月合計（フィルタ後 {list.length} 件）</td>
+                <td colSpan={5} className="px-3 py-2.5 text-[13px] font-semibold">月合計（フィルタ後 {list.length} 件）</td>
                 <td className="px-3 py-2.5 text-right num text-[14px] font-bold text-brand-700">{jpy(list.reduce((s, b) => s + b.amount, 0))}</td>
                 <td colSpan={4}></td>
               </tr>
@@ -264,7 +302,7 @@ export default function UtilitiesPage() {
         size="lg"
         footer={<ModalFooter onCancel={() => setNewOpen(false)} onConfirm={saveNew} confirmLabel="登録" />}
       >
-        <UtilityForm draft={draft} setDraft={(d) => setDraft({ ...draft, ...d })} rooms={rooms} userOfRoom={userOfRoom} />
+        <UtilityForm draft={draft} setDraft={(d) => setDraft({ ...draft, ...d })} roomOptions={roomOptions} userOfRoom={userOfRoom} />
       </Modal>
 
       {/* 編集モーダル */}
@@ -281,51 +319,84 @@ export default function UtilitiesPage() {
           />
         }
       >
-        {editing && <UtilityForm draft={editing} setDraft={(d) => setEditing({ ...editing, ...d })} rooms={rooms} userOfRoom={userOfRoom} />}
+        {editing && <UtilityForm draft={editing} setDraft={(d) => setEditing({ ...editing, ...d })} roomOptions={roomOptions} userOfRoom={userOfRoom} />}
       </Modal>
     </div>
   );
 }
 
 function UtilityForm({
-  draft, setDraft, rooms, userOfRoom,
+  draft, setDraft, roomOptions, userOfRoom,
 }: {
   draft: Draft | UtilityBill;
   setDraft: (d: Partial<UtilityBill>) => void;
-  rooms: string[];
+  roomOptions: { roomNo: string; type?: string }[];
   userOfRoom: (roomNo: string) => { name: string; id: string } | undefined;
 }) {
   const u = draft.roomNo ? userOfRoom(draft.roomNo) : undefined;
+  const roomMeta = roomOptions.find((r) => r.roomNo === draft.roomNo);
+
+  // 検針終了日から請求対象月を自動推奨（変更ボタンで適用）
+  function suggestYmFromPeriod() {
+    if (!draft.periodEnd) return;
+    setDraft({ ym: draft.periodEnd.slice(0, 7) });
+  }
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-3">
-        <Field label="部屋">
+        <Field label="部屋" hint="居室・事務所・倉庫など">
           <Select value={draft.roomNo} onChange={(e) => setDraft({ roomNo: e.target.value })}>
             <option value="">— 選択 —</option>
-            {rooms.map((r) => <option key={r} value={r}>{r}</option>)}
+            {roomOptions.map((r) => (
+              <option key={r.roomNo} value={r.roomNo}>
+                {r.roomNo}{r.type ? `（${r.type}）` : ""}
+              </option>
+            ))}
           </Select>
         </Field>
-        <Field label="年月"><Input type="month" value={draft.ym} onChange={(e) => setDraft({ ym: e.target.value })} className="num" /></Field>
         <Field label="種別">
           <Select value={draft.type} onChange={(e) => setDraft({ type: e.target.value as UtilityType })}>
             {UTILITY_TYPES.map((t) => <option key={t}>{t}</option>)}
           </Select>
         </Field>
+        <Field label="業者名"><Input value={draft.provider ?? ""} onChange={(e) => setDraft({ provider: e.target.value })} placeholder="例：東京電力" /></Field>
       </div>
 
-      {u && (
+      {u ? (
         <div className="bg-info-50/40 border-l-[3px] border-info-600 rounded-r px-3 py-1.5 text-[12px] text-ink-800">
-          部屋 <b className="num">{draft.roomNo}</b> の現在の入居者：<b>{u.name} 様</b>　／　「入居者請求 ON」で自動的にこの方の月次請求に加算されます。
+          部屋 <b className="num">{draft.roomNo}</b>（{roomMeta?.type ?? "居室"}）の現在の入居者：<b>{u.name} 様</b>　／　「入居者請求 ON」で自動的にこの方の月次請求に加算されます。
         </div>
-      )}
+      ) : roomMeta && roomMeta.type !== "居室" ? (
+        <div className="bg-ink-50 border-l-[3px] border-ink-300 rounded-r px-3 py-1.5 text-[12px] text-ink-700">
+          {roomMeta.type}（{draft.roomNo}）の光熱費です。入居者への請求転嫁は通常 OFF です。
+        </div>
+      ) : null}
+
+      <div className="border border-ink-200 rounded p-3 bg-ink-50/40">
+        <div className="text-[11px] font-semibold text-ink-600 mb-2">📅 検針期間と請求対象月</div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="検針開始日">
+            <Input type="date" value={draft.periodStart ?? ""} onChange={(e) => setDraft({ periodStart: e.target.value })} className="num" />
+          </Field>
+          <Field label="検針終了日">
+            <Input type="date" value={draft.periodEnd ?? ""} onChange={(e) => setDraft({ periodEnd: e.target.value })} className="num" />
+          </Field>
+          <Field label="請求対象月" hint="この光熱費をどの月の請求に計上するか">
+            <div className="flex gap-1">
+              <Input type="month" value={draft.ym} onChange={(e) => setDraft({ ym: e.target.value })} className="num flex-1" />
+              <button type="button" onClick={suggestYmFromPeriod} className="btn btn-sm shrink-0" title="検針終了日の月にセット">推奨</button>
+            </div>
+          </Field>
+        </div>
+        <p className="text-[10px] text-ink-500 mt-1">
+          例：検針期間 <span className="num">4/15〜5/14</span>、請求対象月 <span className="num">2026-05</span> → 5月分の請求書に「電気代 4/15〜5/14」として明細表示されます
+        </p>
+      </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <Field label="業者名"><Input value={draft.provider ?? ""} onChange={(e) => setDraft({ provider: e.target.value })} placeholder="例：東京電力／東京ガス" /></Field>
         <Field label="検針値（任意）"><Input type="number" value={draft.meterReading ?? ""} onChange={(e) => setDraft({ meterReading: Number(e.target.value) || undefined })} className="num" placeholder="kWh / ㎥" /></Field>
         <Field label="金額（税込）"><Input type="number" value={draft.amount} onChange={(e) => setDraft({ amount: Number(e.target.value) || 0 })} className="num" /></Field>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
         <Field label="税率">
           <Select value={String(draft.taxRate ?? 0.1)} onChange={(e) => setDraft({ taxRate: Number(e.target.value) as TaxRate })}>
             <option value="0">非課税</option>
@@ -333,6 +404,9 @@ function UtilityForm({
             <option value="0.1">標準 10%</option>
           </Select>
         </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
         <Field label="支払状態">
           <Select value={draft.status} onChange={(e) => setDraft({ status: e.target.value as UtilityBill["status"] })}>
             <option>未払い</option><option>支払済</option>

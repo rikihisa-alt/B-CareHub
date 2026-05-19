@@ -156,14 +156,28 @@ export function expandRegularServices(services: RegularService[], ym: string, us
     }));
 }
 
-/** 光熱費（部屋ごと、月ごと） */
+/** 部屋（居室・事務所・倉庫・共用部 など） */
+export type RoomType = "居室" | "事務所" | "倉庫" | "共用部" | "その他";
+
+export type Room = {
+  id: string;
+  facilityId?: string;
+  roomNo: string;              // 部屋番号や名称（半角英数字＋日本語可）例：101 / 事務所 / 倉庫A / 1F廊下
+  type: RoomType;
+  capacity?: number;           // 居室の場合の定員
+  note?: string;
+};
+
+/** 光熱費（部屋ごと、検針期間ごと） */
 export type UtilityType = "電気" | "ガス" | "水道" | "灯油" | "その他";
 
 export type UtilityBill = {
   id: string;
   facilityId?: string;
-  roomNo: string;              // 部屋番号（User.room と照合）
-  ym: string;                  // 年月 "YYYY-MM"
+  roomNo: string;              // 部屋番号 or 部屋名（Room.roomNo or User.room と照合）
+  ym: string;                  // 請求対象 年月 "YYYY-MM"
+  periodStart?: string;        // 検針開始日 YYYY-MM-DD（例：2026-04-15）
+  periodEnd?: string;          // 検針終了日 YYYY-MM-DD（例：2026-05-14）
   type: UtilityType;
   provider?: string;           // 業者名 例：東京電力／東京ガス
   meterReading?: number;       // 検針値（任意）
@@ -185,21 +199,27 @@ export function utilityBillsToLineItems(
 ): BillingLineItem[] {
   return bills
     .filter((b) => b.billToUser && b.roomNo === roomNo && b.ym === ym && (!facilityId || !b.facilityId || b.facilityId === facilityId))
-    .map((b) => ({
-      id: `UB-${b.id}`,
-      userId: "",                  // 後で呼び出し側がセット
-      facilityId: b.facilityId,
-      ym: b.ym,
-      category: "水道光熱費" as BillingCategory,
-      name: `${b.type}代${b.provider ? `（${b.provider}）` : ""}`,
-      date: `${ym}-末`,
-      quantity: 1,
-      unitPrice: b.amount,
-      amount: b.amount,
-      taxRate: b.taxRate ?? 0.1,
-      source: "manual" as const,
-      note: b.note,
-    }));
+    .map((b) => {
+      // 期間表示：例「4/15〜5/14」
+      const periodLabel = (b.periodStart && b.periodEnd)
+        ? ` ${b.periodStart.slice(5).replace("-", "/")}〜${b.periodEnd.slice(5).replace("-", "/")}`
+        : "";
+      return {
+        id: `UB-${b.id}`,
+        userId: "",                  // 後で呼び出し側がセット
+        facilityId: b.facilityId,
+        ym: b.ym,
+        category: "水道光熱費" as BillingCategory,
+        name: `${b.type}代${b.provider ? `（${b.provider}）` : ""}${periodLabel}`,
+        date: b.periodEnd ?? `${ym}-末`,
+        quantity: 1,
+        unitPrice: b.amount,
+        amount: b.amount,
+        taxRate: b.taxRate ?? 0.1,
+        source: "manual" as const,
+        note: b.note,
+      };
+    });
 }
 
 /** 利用者の特定月の請求合計を算出 */
