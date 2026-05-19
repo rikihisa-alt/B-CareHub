@@ -5,12 +5,24 @@ import type {
   MealConfirmation, SingleCancellation, RegularService, BillingLineItem,
 } from "./data";
 
+export type BankAccount = {
+  bank: string;        // 金融機関名 例：ゆうちょ銀行
+  branch?: string;     // 店名／支店
+  type?: string;       // 普通／当座／記号番号
+  number: string;      // 口座番号 or 記号番号
+  holder: string;      // 名義（カタカナ）
+};
+
 export type Facility = {
   id: string;
   name: string;
   address?: string;
   phone?: string;
   capacity?: number;
+  // 請求書用
+  paymentDueDay?: number;       // お支払期日（毎月◯日、デフォルト15）
+  bankAccounts?: BankAccount[];  // 振込先（複数可）
+  invoiceNote?: string;          // 請求書に印字する備考
 };
 
 // localStorage キーの prefix

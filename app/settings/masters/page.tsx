@@ -6,7 +6,7 @@ import { toast } from "@/components/ui/toast";
 import { Field, Input, ModalFooter } from "@/components/ui/primitives";
 import {
   clearAllData, exportAllData, importAllData, logActivity, genId,
-  useFacilities, useCurrentFacilityId, type Facility,
+  useFacilities, useCurrentFacilityId, type Facility, type BankAccount,
 } from "@/lib/store";
 
 const CATEGORIES = [
@@ -34,7 +34,11 @@ const CATEGORIES = [
 type FacilityDraft = Omit<Facility, "id">;
 
 function emptyFacilityDraft(): FacilityDraft {
-  return { name: "", capacity: 16 };
+  return { name: "", capacity: 16, paymentDueDay: 15, bankAccounts: [], invoiceNote: "" };
+}
+
+function emptyBankAccount(): BankAccount {
+  return { bank: "", branch: "", type: "普通", number: "", holder: "" };
 }
 
 export default function MastersPage() {
@@ -326,21 +330,73 @@ export default function MastersPage() {
 }
 
 function FacilityForm({ draft, setDraft }: { draft: Omit<Facility, "id">; setDraft: (d: Omit<Facility, "id">) => void }) {
+  const accounts = draft.bankAccounts ?? [];
+  function updateAcc(i: number, patch: Partial<BankAccount>) {
+    const next = accounts.slice();
+    next[i] = { ...next[i], ...patch };
+    setDraft({ ...draft, bankAccounts: next });
+  }
+  function addAcc() {
+    setDraft({ ...draft, bankAccounts: [...accounts, emptyBankAccount()] });
+  }
+  function removeAcc(i: number) {
+    setDraft({ ...draft, bankAccounts: accounts.filter((_, j) => j !== i) });
+  }
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <Field label="施設名（必須）">
         <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="例：あすか苑 本館" />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="定員（室数）">
           <Input type="number" value={draft.capacity ?? ""} onChange={(e) => setDraft({ ...draft, capacity: Number(e.target.value) || undefined })} className="num" placeholder="例：16" />
         </Field>
         <Field label="電話">
           <Input value={draft.phone ?? ""} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} placeholder="例：03-1234-5678" />
         </Field>
+        <Field label="お支払期日（毎月◯日）" hint="請求書に「2026年5月◯日(◯)」と印字されます">
+          <Input type="number" min={1} max={31} value={draft.paymentDueDay ?? 15} onChange={(e) => setDraft({ ...draft, paymentDueDay: Number(e.target.value) || 15 })} className="num" />
+        </Field>
       </div>
       <Field label="住所">
         <Input value={draft.address ?? ""} onChange={(e) => setDraft({ ...draft, address: e.target.value })} placeholder="例：◯◯県◯◯市..." />
+      </Field>
+
+      {/* 振込先 */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[12px] font-semibold text-ink-600">振込先（請求書に印字、複数可）</span>
+          <button type="button" onClick={addAcc} className="btn btn-sm">＋ 口座を追加</button>
+        </div>
+        {accounts.length === 0 && (
+          <div className="text-[12px] text-ink-500 px-3 py-3 border border-dashed border-ink-200 rounded">未登録</div>
+        )}
+        {accounts.map((acc, i) => (
+          <div key={i} className="border border-ink-200 rounded p-3 mb-2 grid grid-cols-2 gap-2">
+            <Field label="金融機関名"><Input value={acc.bank} onChange={(e) => updateAcc(i, { bank: e.target.value })} placeholder="例：ゆうちょ銀行" /></Field>
+            <Field label="支店／店名"><Input value={acc.branch ?? ""} onChange={(e) => updateAcc(i, { branch: e.target.value })} placeholder="例：四一八店" /></Field>
+            <Field label="種別">
+              <Input value={acc.type ?? ""} onChange={(e) => updateAcc(i, { type: e.target.value })} placeholder="普通 / 当座 / 記号" />
+            </Field>
+            <Field label="番号"><Input value={acc.number} onChange={(e) => updateAcc(i, { number: e.target.value })} className="num" placeholder="例：7480530" /></Field>
+            <div className="col-span-2">
+              <Field label="名義（カタカナ）"><Input value={acc.holder} onChange={(e) => updateAcc(i, { holder: e.target.value })} placeholder="例：カ）アスカエン" /></Field>
+            </div>
+            <div className="col-span-2 text-right">
+              <button type="button" onClick={() => removeAcc(i)} className="btn btn-sm text-err-700">この口座を削除</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Field label="請求書 備考（任意）" hint="請求書下部に印字（注意事項等）">
+        <textarea
+          rows={3}
+          value={draft.invoiceNote ?? ""}
+          onChange={(e) => setDraft({ ...draft, invoiceNote: e.target.value })}
+          className="w-full px-3 py-2 border border-ink-200 rounded text-[13px]"
+          placeholder="例：振込日が休日に重なる場合は休前日にお振込みください。"
+        />
       </Field>
     </div>
   );

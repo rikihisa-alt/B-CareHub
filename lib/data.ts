@@ -76,6 +76,9 @@ export type BillingCategory =
   | "家賃" | "共益費" | "水道光熱費" | "管理費" | "生活支援費"
   | "食費" | "日用品" | "介護" | "看護" | "立替" | "保険外サービス" | "その他";
 
+/** 税率：0=非課税、0.08=軽減税率（飲食料品）、0.1=標準 */
+export type TaxRate = 0 | 0.08 | 0.1;
+
 /** 定期サービス（毎月定額） */
 export type RegularService = {
   id: string;
@@ -83,7 +86,8 @@ export type RegularService = {
   facilityId?: string;
   name: string;            // 表示名 例：家賃／共益費／理美容（月1）
   category: BillingCategory;
-  amount: number;          // 月額
+  amount: number;          // 月額（税込）
+  taxRate?: TaxRate;       // デフォルト 0（非課税）
   validFrom: string;       // YYYY-MM-DD 開始日
   validTo?: string;        // YYYY-MM-DD 終了日（任意）
   active: boolean;
@@ -97,11 +101,12 @@ export type BillingLineItem = {
   facilityId?: string;
   ym: string;                  // 年月 "YYYY-MM"
   category: BillingCategory;
-  name: string;                // 項目名 例：朝食パン／おむつL／理美容代
+  name: string;                // 項目名 例：朝セット／昼セット／夕セット／おむつL／理美容代
   date?: string;               // 提供日 YYYY-MM-DD（任意）
   quantity: number;
-  unitPrice: number;
+  unitPrice: number;           // 単価（税込）
   amount: number;              // quantity × unitPrice
+  taxRate?: TaxRate;           // デフォルト 0
   source?: "manual" | "regular" | "meal-auto" | "goods-auto";
   note?: string;
 };
