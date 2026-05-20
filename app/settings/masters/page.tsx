@@ -6,10 +6,10 @@ import { toast } from "@/components/ui/toast";
 import { Field, Input, Select, ModalFooter, Pill } from "@/components/ui/primitives";
 import {
   clearAllData, exportAllData, importAllData, logActivity, genId,
-  useFacilities, useCurrentFacilityId, useRooms,
+  useFacilities, useCurrentFacilityId, useRooms, useMealPrices,
   type Facility, type BankAccount,
 } from "@/lib/store";
-import { type Room, type RoomType } from "@/lib/data";
+import { type Room, type RoomType, type MealPrice, type MealPriceKey, type TaxRate, DEFAULT_MEAL_PRICES, jpy } from "@/lib/data";
 
 const CATEGORIES = [
   { group: "食事", items: [
@@ -54,6 +54,48 @@ export default function MastersPage() {
   const [facilities, setFacilities] = useFacilities();
   const [currentFacilityId, setCurrentFacilityId] = useCurrentFacilityId();
   const [rooms, setRooms] = useRooms();
+  const [mealPrices, setMealPrices] = useMealPrices();
+  const [mealPriceFacilityId, setMealPriceFacilityId] = useState<string | undefined>(currentFacilityId ?? facilities[0]?.id);
+  const [mealPriceOpen, setMealPriceOpen] = useState(false);
+  // 編集用ドラフト：選択中施設のキーマップ
+  const [mealDraft, setMealDraft] = useState<Record<MealPriceKey, { label: string; price: number; taxRate: TaxRate }>>(() => {
+    const m = {} as Record<MealPriceKey, { label: string; price: number; taxRate: TaxRate }>;
+    DEFAULT_MEAL_PRICES.forEach((d) => { m[d.key] = { label: d.label, price: d.price, taxRate: 0.08 as TaxRate }; });
+    return m;
+  });
+
+  function openMealPriceEdit() {
+    // 該当施設の現在値を読み込み（無ければデフォルト）
+    const fid = mealPriceFacilityId;
+    const m = {} as Record<MealPriceKey, { label: string; price: number; taxRate: TaxRate }>;
+    DEFAULT_MEAL_PRICES.forEach((d) => {
+      const found = mealPrices.find((p) => p.key === d.key && (!p.facilityId || !fid || p.facilityId === fid));
+      m[d.key] = found
+        ? { label: found.label, price: found.price, taxRate: found.taxRate }
+        : { label: d.label, price: d.price, taxRate: 0.08 as TaxRate };
+    });
+    setMealDraft(m);
+    setMealPriceOpen(true);
+  }
+
+  function saveMealPrices() {
+    const fid = mealPriceFacilityId;
+    // 既存の該当施設の単価を削除して入れ替え
+    setMealPrices((cur) => [
+      ...cur.filter((p) => p.facilityId !== fid),
+      ...DEFAULT_MEAL_PRICES.map((d) => ({
+        id: genId("MP"),
+        facilityId: fid,
+        key: d.key,
+        label: mealDraft[d.key].label,
+        price: mealDraft[d.key].price,
+        taxRate: mealDraft[d.key].taxRate,
+      })),
+    ]);
+    logActivity(`食費単価マスタを更新（${facilities.find((f) => f.id === fid)?.name ?? "全施設"}）`);
+    toast("食費単価マスタを保存しました", "ok");
+    setMealPriceOpen(false);
+  }
   const [addRoomOpen, setAddRoomOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const defaultFacilityForRoom = currentFacilityId ?? facilities[0]?.id;
@@ -291,6 +333,62 @@ export default function MastersPage() {
         </p>
       </section>
 
+      {/* 食費単価マスタ */}
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider">食費単価マスタ（請求書の食費単価）</h2>
+          <div className="flex gap-2 items-center">
+            {facilities.length > 1 && (
+              <select value={mealPriceFacilityId ?? ""} onChange={(e) => setMealPriceFacilityId(e.target.value || undefined)} className="px-2 py-1 border border-ink-200 rounded text-[12px]">
+                {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            )}
+            <button onClick={openMealPriceEdit} className="btn btn-sm btn-primary">単価を編集</button>
+          </div>
+        </div>
+        <div className="card overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead className="bg-ink-50 border-b border-ink-100 text-ink-600">
+              <tr className="text-left">
+                <th className="px-4 py-2 text-[11px] font-semibold w-32">区分</th>
+                <th className="px-4 py-2 text-[11px] font-semibold">請求書の表示名（種別名）</th>
+                <th className="px-4 py-2 text-[11px] font-semibold text-right w-28">単価（税込）</th>
+                <th className="px-4 py-2 text-[11px] font-semibold text-right w-20">税率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DEFAULT_MEAL_PRICES.map((d) => {
+                const found = mealPrices.find((p) => p.key === d.key && (!p.facilityId || !mealPriceFacilityId || p.facilityId === mealPriceFacilityId));
+                const isDefault = !found;
+                const p = found ?? { label: d.label, price: d.price, taxRate: 0.08 as TaxRate };
+                return (
+                  <tr key={d.key} className="border-b border-ink-100 last:border-b-0">
+                    <td className="px-4 py-2.5 text-[12px] text-ink-700">
+                      {d.key === "breakfastBread" && "朝食 パン"}
+                      {d.key === "breakfastJuice" && "朝食 ジュース"}
+                      {d.key === "lunchA" && "昼食 A社"}
+                      {d.key === "lunchB" && "昼食 B社"}
+                      {d.key === "dinnerA" && "夕食 A社"}
+                      {d.key === "dinnerB" && "夕食 B社"}
+                    </td>
+                    <td className="px-4 py-2.5 font-medium text-ink-900">
+                      {p.label}
+                      {isDefault && <span className="ml-2 text-[10px] text-ink-400">（初期値）</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-right num font-semibold">{jpy(p.price)}</td>
+                    <td className="px-4 py-2.5 text-right num text-[12px]">{Math.round(p.taxRate * 100)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-ink-500 mt-2">
+          ※ ここで設定した単価が、各利用者の食事設定（朝パン・朝ジュース・昼業者・夕業者）に応じて、毎日の明細として請求書に自動計上されます。
+          単価未設定の場合は初期値が使われます。
+        </p>
+      </section>
+
       {CATEGORIES.map((cat) => (
         <section key={cat.group}>
           <h2 className="text-[12px] font-semibold text-ink-600 uppercase tracking-wider mb-2">{cat.group}</h2>
@@ -323,6 +421,63 @@ export default function MastersPage() {
         ※ 施設情報以外のマスタ編集 UI は簡略表示です。商用版では各マスタ別に専用編集画面を提供します。
         <Link href="/admin/audit-logs" className="text-brand-700 hover:underline ml-2">監査ログを見る →</Link>
       </div>
+
+      {/* 食費単価編集 */}
+      <Modal
+        open={mealPriceOpen}
+        onClose={() => setMealPriceOpen(false)}
+        title={`食費単価マスタの編集${facilities.length > 1 ? `（${facilities.find((f) => f.id === mealPriceFacilityId)?.name ?? "全施設"}）` : ""}`}
+        size="lg"
+        footer={<ModalFooter onCancel={() => setMealPriceOpen(false)} onConfirm={saveMealPrices} confirmLabel="保存" />}
+      >
+        <div className="bg-info-50/40 border-l-[3px] border-info-600 rounded-r px-3 py-2 mb-3 text-[12px] text-ink-800">
+          請求書の食費明細に印字される「種別名」と「単価」を設定します。<br />
+          利用者の食事設定（朝パン／朝ジュース／昼A・B社／夕A・B社）に応じて、提供日ごとに自動で明細が生成されます。
+        </div>
+        <div className="space-y-2">
+          {DEFAULT_MEAL_PRICES.map((d) => {
+            const v = mealDraft[d.key];
+            return (
+              <div key={d.key} className="grid grid-cols-12 gap-2 items-center border-b border-ink-100 pb-2">
+                <div className="col-span-2 text-[12px] text-ink-700">
+                  {d.key === "breakfastBread" && "朝食 パン"}
+                  {d.key === "breakfastJuice" && "朝食 ジュース"}
+                  {d.key === "lunchA" && "昼食 A社"}
+                  {d.key === "lunchB" && "昼食 B社"}
+                  {d.key === "dinnerA" && "夕食 A社"}
+                  {d.key === "dinnerB" && "夕食 B社"}
+                </div>
+                <div className="col-span-5">
+                  <Input
+                    value={v.label}
+                    onChange={(e) => setMealDraft({ ...mealDraft, [d.key]: { ...v, label: e.target.value } })}
+                    placeholder="例：朝セット / 昼セット A社"
+                  />
+                </div>
+                <div className="col-span-3">
+                  <Input
+                    type="number"
+                    value={v.price}
+                    onChange={(e) => setMealDraft({ ...mealDraft, [d.key]: { ...v, price: Number(e.target.value) || 0 } })}
+                    className="num"
+                    placeholder="単価"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Select
+                    value={String(v.taxRate)}
+                    onChange={(e) => setMealDraft({ ...mealDraft, [d.key]: { ...v, taxRate: Number(e.target.value) as TaxRate } })}
+                  >
+                    <option value="0">非課税</option>
+                    <option value="0.08">軽減 8%</option>
+                    <option value="0.1">標準 10%</option>
+                  </Select>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
 
       {/* 部屋追加 */}
       <Modal

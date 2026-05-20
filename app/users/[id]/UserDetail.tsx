@@ -2,10 +2,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate, computeUserBilling, utilityBillsToLineItems } from "@/lib/data";
+import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate, computeUserBilling, utilityBillsToLineItems, generateMealLineItems } from "@/lib/data";
 import {
   useTasks, useHandovers, useRegularServices, useBillingLineItems, useUtilityBills,
-  useFacilities, useCurrentFacilityId,
+  useFacilities, useCurrentFacilityId, useMealPrices, useSingleCancellations,
   logActivity, genId, todayIso, nowIso,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
@@ -44,12 +44,15 @@ export function UserDetail({
   const [services, setServices] = useRegularServices();
   const [lineItems, setLineItems] = useBillingLineItems();
   const [utilityBills] = useUtilityBills();
+  const [mealPrices] = useMealPrices();
+  const [singleCancellations] = useSingleCancellations();
   const [facilities] = useFacilities();
   const [billingYm, setBillingYm] = useState(todayIso().slice(0, 7));
-  // 光熱費から自動的に明細を生成して billing 計算に含める
+  // 光熱費・食事明細を自動生成して billing 計算に含める
   const utilityItems = utilityBillsToLineItems(utilityBills, user.room, billingYm, user.facilityId)
     .map((it) => ({ ...it, userId: user.id }));
-  const userBilling = computeUserBilling(user.id, billingYm, services, [...lineItems, ...utilityItems]);
+  const mealItems = generateMealLineItems(user, billingYm, mealPrices, singleCancellations);
+  const userBilling = computeUserBilling(user.id, billingYm, services, [...lineItems, ...utilityItems, ...mealItems]);
   const facility = facilities.find((f) => f.id === user.facilityId) ?? facilities[0];
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 
@@ -688,11 +691,11 @@ function BillingTab({
       {/* 当月の明細 */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-[13px] font-semibold text-ink-700">{ym} の明細（個別請求項目）</h3>
+          <h3 className="text-[13px] font-semibold text-ink-700">{ym} の明細（{lineItems.length} 件 ＋ 自動生成）</h3>
           <button onClick={openAddItem} className="btn btn-sm">＋ 明細を追加</button>
         </div>
         <div className="card overflow-hidden">
-          {lineItems.length === 0 ? (
+          {billing.items.filter((i) => i.ym === ym).length === 0 ? (
             <div className="px-4 py-6 text-center text-[12px] text-ink-500">
               食事・日用品の使用、立替金、保険外サービス（理美容・送迎など）は、提供のたびにここへ追加します。<br />
               数量×単価で金額が自動計算されます。
@@ -712,21 +715,35 @@ function BillingTab({
                 </tr>
               </thead>
               <tbody>
-                {lineItems.map((it) => (
-                  <tr key={it.id} className="border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60">
-                    <td className="px-3 py-2 num text-[11px] text-ink-700">{it.date ?? "—"}</td>
-                    <td className="px-3 py-2 text-[12px] text-ink-700">{it.category}</td>
-                    <td className="px-3 py-2 text-ink-900">{it.name}</td>
-                    <td className="px-3 py-2 text-right num">{it.quantity}</td>
-                    <td className="px-3 py-2 text-right num text-[12px]">{it.taxRate ? `${Math.round(it.taxRate * 100)}%` : "—"}</td>
-                    <td className="px-3 py-2 text-right num">{jpy(it.unitPrice)}</td>
-                    <td className="px-3 py-2 text-right num font-semibold">{jpy(it.amount)}</td>
-                    <td className="px-3 py-2 text-center flex gap-1 justify-center">
-                      <button onClick={() => openEditItem(it)} className="btn btn-sm">編集</button>
-                      <button onClick={() => { if (window.confirm(`「${it.name}」を削除します`)) onRemoveItem(it.id); }} className="btn btn-sm text-err-700">×</button>
-                    </td>
-                  </tr>
-                ))}
+                {billing.items.filter((i) => i.ym === ym).sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")).map((it) => {
+                  const isAuto = it.source === "meal-auto" || it.source === "regular" || it.id.startsWith("UB-");
+                  return (
+                    <tr key={it.id} className={"border-b border-ink-100 last:border-b-0 hover:bg-ink-50/60 " + (isAuto ? "bg-ink-50/30" : "")}>
+                      <td className="px-3 py-2 num text-[11px] text-ink-700">{it.date ?? "—"}</td>
+                      <td className="px-3 py-2 text-[12px] text-ink-700">{it.category}</td>
+                      <td className="px-3 py-2 text-ink-900">
+                        {it.name}
+                        {it.source === "meal-auto" && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-info-50 text-info-700 border border-info-600/20">食事自動</span>}
+                        {it.source === "regular" && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-info-50 text-info-700 border border-info-600/20">定期</span>}
+                        {it.id.startsWith("UB-") && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-info-50 text-info-700 border border-info-600/20">光熱費</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right num">{it.quantity}</td>
+                      <td className="px-3 py-2 text-right num text-[12px]">{it.taxRate ? `${Math.round(it.taxRate * 100)}%` : "—"}</td>
+                      <td className="px-3 py-2 text-right num">{jpy(it.unitPrice)}</td>
+                      <td className="px-3 py-2 text-right num font-semibold">{jpy(it.amount)}</td>
+                      <td className="px-3 py-2 text-center">
+                        {isAuto ? (
+                          <span className="text-[10px] text-ink-400">—</span>
+                        ) : (
+                          <span className="flex gap-1 justify-center">
+                            <button onClick={() => openEditItem(it)} className="btn btn-sm">編集</button>
+                            <button onClick={() => { if (window.confirm(`「${it.name}」を削除します`)) onRemoveItem(it.id); }} className="btn btn-sm text-err-700">×</button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

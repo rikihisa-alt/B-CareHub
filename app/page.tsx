@@ -3,13 +3,13 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   jpy, buildMonthMealCounts, timeToDeadline, vendors,
-  computeUserBilling, utilityBillsToLineItems,
+  computeUserBilling, utilityBillsToLineItems, generateMealLineItems,
   type Task, type User,
 } from "@/lib/data";
 import {
   useUsers, useTasks, useHandovers, useActivities, useGoods, useDocuments,
   useMealConfirmations, useSingleCancellations, useFacilities, useCurrentFacilityId,
-  useRegularServices, useBillingLineItems, useUtilityBills,
+  useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices,
   logActivity, genId, todayIso, filterByFacility,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const [services] = useRegularServices();
   const [lineItems] = useBillingLineItems();
   const [utilityBills] = useUtilityBills();
+  const [mealPrices] = useMealPrices();
 
   // 施設フィルタ
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
@@ -93,7 +94,8 @@ export default function DashboardPage() {
   const ymToday = today.slice(0, 7);
   const totalBilling = users.reduce((s, u) => {
     const utilItems = utilityBillsToLineItems(utilityBills, u.room, ymToday, u.facilityId).map((it) => ({ ...it, userId: u.id }));
-    return s + computeUserBilling(u.id, ymToday, services, [...lineItems, ...utilItems]).total;
+    const mealItems = generateMealLineItems(u, ymToday, mealPrices, singleCancellations);
+    return s + computeUserBilling(u.id, ymToday, services, [...lineItems, ...utilItems, ...mealItems]).total;
   }, 0);
   const tasksUrgent = tasks.filter((t) => t.priority === "高" && t.status !== "完了").length;
   const importantHandovers = handovers.filter((h) => h.important).length;

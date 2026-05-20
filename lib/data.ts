@@ -222,6 +222,103 @@ export function utilityBillsToLineItems(
     });
 }
 
+/** 食費単価マスタ */
+export type MealPriceKey = "breakfastBread" | "breakfastJuice" | "lunchA" | "lunchB" | "dinnerA" | "dinnerB";
+
+export type MealPrice = {
+  id: string;
+  facilityId?: string;
+  key: MealPriceKey;
+  label: string;      // 請求書に表示される名称（例：朝セット／昼セット A社）
+  price: number;      // 単価（税込）
+  taxRate: TaxRate;
+};
+
+/** デフォルト食費単価（マスタ未設定時のフォールバック） */
+export const DEFAULT_MEAL_PRICES: { key: MealPriceKey; label: string; price: number }[] = [
+  { key: "breakfastBread",  label: "朝食 パン",      price: 150 },
+  { key: "breakfastJuice",  label: "朝食 ジュース",  price: 80  },
+  { key: "lunchA",          label: "昼セット A社",   price: 600 },
+  { key: "lunchB",          label: "昼セット B社",   price: 580 },
+  { key: "dinnerA",         label: "夕セット A社",   price: 780 },
+  { key: "dinnerB",         label: "夕セット B社",   price: 720 },
+];
+
+function getMealPrice(key: MealPriceKey, prices: MealPrice[], facilityId?: string): { label: string; price: number; taxRate: TaxRate } {
+  const found = prices.find((p) => p.key === key && (!p.facilityId || !facilityId || p.facilityId === facilityId));
+  if (found) return { label: found.label, price: found.price, taxRate: found.taxRate };
+  const def = DEFAULT_MEAL_PRICES.find((d) => d.key === key)!;
+  return { label: def.label, price: def.price, taxRate: 0.08 };
+}
+
+/** 利用者の食事設定 × 当月日数 × キャンセル状況 から、日別の食費明細を自動生成 */
+export function generateMealLineItems(
+  user: User,
+  ym: string,
+  mealPrices: MealPrice[],
+  singleCancellations: SingleCancellation[] = [],
+): BillingLineItem[] {
+  const items: BillingLineItem[] = [];
+  const [y, m] = ym.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+
+  for (let d = 1; d <= lastDay; d++) {
+    const ymd = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const date = new Date(y, m - 1, d);
+    const weekday = date.getDay();
+
+    // ステータス休止中はスキップ
+    if (user.status === "退去済") continue;
+    if (user.status !== "入居中") {
+      if (user.statusFrom && user.statusTo) {
+        if (ymd >= user.statusFrom && ymd <= user.statusTo) continue;
+      } else if (user.statusFrom) {
+        if (ymd >= user.statusFrom) continue;
+      } else {
+        continue;
+      }
+    }
+
+    // 単発キャンセル
+    const singles = singleCancellations.filter((c) => c.userId === user.id && c.date === ymd);
+    const sBreak = singles.some((c) => c.mealType === "breakfast");
+    const sLunch = singles.some((c) => c.mealType === "lunch");
+    const sDinner = singles.some((c) => c.mealType === "dinner");
+
+    // 定期キャンセル
+    const rBreak = user.meal.regularCancels.some((c) => c.weekday === weekday && c.mealType === "breakfast");
+    const rLunch = user.meal.regularCancels.some((c) => c.weekday === weekday && c.mealType === "lunch");
+    const rDinner = user.meal.regularCancels.some((c) => c.weekday === weekday && c.mealType === "dinner");
+
+    const fid = user.facilityId;
+    const push = (suffix: string, key: MealPriceKey) => {
+      const p = getMealPrice(key, mealPrices, fid);
+      items.push({
+        id: `MA-${user.id}-${ymd}-${suffix}`,
+        userId: user.id,
+        facilityId: fid,
+        ym,
+        category: "食費",
+        name: p.label,
+        date: ymd,
+        quantity: 1,
+        unitPrice: p.price,
+        amount: p.price,
+        taxRate: p.taxRate,
+        source: "meal-auto",
+      });
+    };
+
+    if (user.meal.breakfastBread && !sBreak && !rBreak) push("bb", "breakfastBread");
+    if (user.meal.breakfastJuice && !sBreak && !rBreak) push("bj", "breakfastJuice");
+    if (user.meal.lunchVendor === "A社" && !sLunch && !rLunch) push("l", "lunchA");
+    else if (user.meal.lunchVendor === "B社" && !sLunch && !rLunch) push("l", "lunchB");
+    if (user.meal.dinnerVendor === "A社" && !sDinner && !rDinner) push("d", "dinnerA");
+    else if (user.meal.dinnerVendor === "B社" && !sDinner && !rDinner) push("d", "dinnerB");
+  }
+  return items;
+}
+
 /** 利用者の特定月の請求合計を算出 */
 export function computeUserBilling(
   userId: string,
