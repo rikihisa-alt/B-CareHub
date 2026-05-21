@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { jpy, computeUserBilling, utilityBillsToLineItems, generateMealLineItems, type BillingBreakdown } from "@/lib/data";
-import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices, useSingleCancellations, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { jpy, computeUserBilling, utilityBillsToLineItems, generateMealLineItems, type BillingBreakdown, type User } from "@/lib/data";
+import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices, useSingleCancellations, useFacilities, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { InvoicePreview } from "@/components/invoice-preview";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -13,6 +14,7 @@ type BillingKey = "rent" | "common" | "utility" | "admin" | "meal" | "goods" | "
 
 export default function BillingPage() {
   const [allUsers] = useUsers();
+  const [facilities] = useFacilities();
   const [currentFacilityId] = useCurrentFacilityId();
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
   const [confirmations, setConfirmations] = useBillingConfirmations();
@@ -22,18 +24,19 @@ export default function BillingPage() {
   const [mealPrices] = useMealPrices();
   const [singleCancellations] = useSingleCancellations();
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [invoiceFor, setInvoiceFor] = useState<User | null>(null);
+  const [detailFor, setDetailFor] = useState<User | null>(null);
 
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
 
   // 各利用者の breakdown を当月分で算出（光熱費・食事自動明細も加算）
   const userBillings = useMemo(() => {
-    const map: Record<string, { breakdown: BillingBreakdown; total: number }> = {};
+    const map: Record<string, ReturnType<typeof computeUserBilling>> = {};
     users.forEach((u) => {
       const utilItems = utilityBillsToLineItems(utilityBills, u.room, ym, u.facilityId).map((it) => ({ ...it, userId: u.id }));
       const mealItems = generateMealLineItems(u, ym, mealPrices, singleCancellations);
-      const { breakdown, total } = computeUserBilling(u.id, ym, services, [...lineItems, ...utilItems, ...mealItems]);
-      map[u.id] = { breakdown, total };
+      map[u.id] = computeUserBilling(u.id, ym, services, [...lineItems, ...utilItems, ...mealItems]);
     });
     return map;
   }, [users, services, lineItems, utilityBills, mealPrices, singleCancellations, ym]);
@@ -114,6 +117,7 @@ export default function BillingPage() {
                 <Th align="right">食費</Th><Th align="right">日用品</Th><Th align="right">介護</Th><Th align="right">看護</Th><Th align="right">立替</Th><Th align="right">その他</Th>
                 <Th align="right">合計</Th>
                 <Th className="w-24" align="center">ステータス</Th>
+                <Th className="w-44" align="center">明細・請求書</Th>
               </tr>
             </thead>
             <tbody>
@@ -134,6 +138,10 @@ export default function BillingPage() {
                     <NumCell v={b.meal} /><NumCell v={b.goods} /><NumCell v={b.care} /><NumCell v={b.nursing} /><NumCell v={b.advance} /><NumCell v={b.other} />
                     <td className="px-2 py-2.5 text-right num font-bold text-brand-700">{jpy(total)}</td>
                     <td className="px-2 py-2.5 text-center"><Pill tone={conf ? "ok" : "warn"}>{conf ? "確定済" : "未確定"}</Pill></td>
+                    <td className="px-2 py-2.5 text-center flex gap-1 justify-center">
+                      <button onClick={() => setDetailFor(u)} className="btn btn-sm">明細</button>
+                      <button onClick={() => setInvoiceFor(u)} className="btn btn-sm btn-primary">請求書</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -145,7 +153,7 @@ export default function BillingPage() {
                   <td key={k} className="px-2 py-3 text-right num font-semibold text-ink-900">{sum(k).toLocaleString("ja-JP")}</td>
                 ))}
                 <td className="px-2 py-3 text-right num text-[15px] font-bold text-brand-700">{jpy(totalAll)}</td>
-                <td />
+                <td colSpan={2} />
               </tr>
             </tfoot>
           </table>
@@ -155,6 +163,102 @@ export default function BillingPage() {
       <p className="text-[11px] text-ink-500">
         ※ 氏名クリックで利用者別請求明細を開きます。請求確定後は自動再計算で上書きされません。
       </p>
+
+      {/* 明細モーダル（請求書プレビューに行く前のクイック確認用） */}
+      <Modal
+        open={detailFor !== null}
+        onClose={() => setDetailFor(null)}
+        title={`${detailFor?.name ?? ""} 様 ${ym} 請求明細`}
+        size="lg"
+        footer={
+          <ModalFooter
+            onCancel={() => setDetailFor(null)}
+            onConfirm={() => { if (detailFor) { setInvoiceFor(detailFor); setDetailFor(null); } }}
+            cancelLabel="閉じる"
+            confirmLabel="請求書プレビューへ"
+          />
+        }
+      >
+        {detailFor && (() => {
+          const ub = userBillings[detailFor.id];
+          if (!ub) return <div className="text-[12px] text-ink-500">データがありません</div>;
+          const items = [...ub.items].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+          const qtyTotal = items.reduce((s, i) => s + i.quantity, 0);
+          return (
+            <div>
+              <div className="text-[12px] text-ink-600 mb-2">
+                利用者：<b className="text-ink-900">{detailFor.name} 様</b>　部屋：<span className="num">{detailFor.room}</span>
+                　／　請求対象月：<span className="num">{ym}</span>
+              </div>
+              <div className="card overflow-hidden">
+                <div className="max-h-[55vh] overflow-y-auto">
+                  <table className="w-full text-[12px]">
+                    <thead className="bg-ink-50 sticky top-0 border-b border-ink-200">
+                      <tr className="text-left">
+                        <th className="px-2 py-1.5 text-[11px] font-semibold w-24">日付</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold w-20">区分</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold">種別名</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold text-right w-12">数量</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold text-right w-12">税率</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold text-right w-20">単価</th>
+                        <th className="px-2 py-1.5 text-[11px] font-semibold text-right w-24">金額</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.length === 0 && (
+                        <tr><td colSpan={7} className="px-2 py-6 text-center text-[12px] text-ink-500">明細がありません</td></tr>
+                      )}
+                      {items.map((it) => (
+                        <tr key={it.id} className={"border-b border-ink-100 " + (it.source === "meal-auto" || it.source === "regular" || it.id.startsWith("UB-") ? "bg-ink-50/30" : "")}>
+                          <td className="px-2 py-1 num text-ink-700">{it.date ?? "—"}</td>
+                          <td className="px-2 py-1 text-ink-600">{it.category}</td>
+                          <td className="px-2 py-1 text-ink-900">
+                            {it.name}
+                            {it.source === "meal-auto" && <span className="ml-1 text-[9px] px-1 rounded bg-info-50 text-info-700 border border-info-600/20">食事自動</span>}
+                            {it.source === "regular" && <span className="ml-1 text-[9px] px-1 rounded bg-info-50 text-info-700 border border-info-600/20">定期</span>}
+                            {it.id.startsWith("UB-") && <span className="ml-1 text-[9px] px-1 rounded bg-info-50 text-info-700 border border-info-600/20">光熱費</span>}
+                          </td>
+                          <td className="px-2 py-1 text-right num">{it.quantity}</td>
+                          <td className="px-2 py-1 text-right num text-[11px]">{it.taxRate ? `${Math.round(it.taxRate * 100)}%` : "—"}</td>
+                          <td className="px-2 py-1 text-right num">{jpy(it.unitPrice)}</td>
+                          <td className="px-2 py-1 text-right num font-semibold">{jpy(it.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-ink-50 border-t-2 border-ink-200 sticky bottom-0">
+                      <tr>
+                        <td colSpan={3} className="px-2 py-2 text-[12px] font-semibold">【{detailFor.name} 様　計】</td>
+                        <td className="px-2 py-2 text-right num font-semibold">{qtyTotal}</td>
+                        <td colSpan={2}></td>
+                        <td className="px-2 py-2 text-right num font-bold text-brand-700">{jpy(ub.total)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* 内訳サマリ */}
+              <div className="mt-3 grid grid-cols-5 gap-2 text-[11px]">
+                <BreakdownChip label="固定費" v={ub.breakdown.rent + ub.breakdown.common + ub.breakdown.utility + ub.breakdown.admin} />
+                <BreakdownChip label="食費" v={ub.breakdown.meal} />
+                <BreakdownChip label="日用品" v={ub.breakdown.goods} />
+                <BreakdownChip label="介護・看護" v={ub.breakdown.care + ub.breakdown.nursing} />
+                <BreakdownChip label="その他" v={ub.breakdown.advance + ub.breakdown.other} />
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* 請求書プレビュー */}
+      <InvoicePreview
+        open={invoiceFor !== null}
+        onClose={() => setInvoiceFor(null)}
+        user={invoiceFor ?? ({ name: "" } as User)}
+        facility={invoiceFor ? facilities.find((f) => f.id === invoiceFor.facilityId) : undefined}
+        ym={ym}
+        billing={invoiceFor ? userBillings[invoiceFor.id] : { items: [], breakdown: { rent:0,common:0,utility:0,admin:0,meal:0,goods:0,care:0,nursing:0,advance:0,other:0 }, total: 0 }}
+      />
 
       <Modal
         open={bulkOpen}
@@ -180,4 +284,13 @@ export default function BillingPage() {
 function NumCell({ v }: { v: number }) {
   if (v === 0) return <td className="px-2 py-2.5 text-right num text-ink-300">—</td>;
   return <td className="px-2 py-2.5 text-right num text-ink-900">{v.toLocaleString("ja-JP")}</td>;
+}
+
+function BreakdownChip({ label, v }: { label: string; v: number }) {
+  return (
+    <div className="border border-ink-200 rounded px-2 py-1.5">
+      <div className="text-ink-500">{label}</div>
+      <div className={"num font-bold text-[13px] mt-0.5 " + (v === 0 ? "text-ink-300" : "text-ink-900")}>{v === 0 ? "—" : jpy(v)}</div>
+    </div>
+  );
 }
