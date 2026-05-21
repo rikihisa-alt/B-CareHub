@@ -182,6 +182,9 @@ export default function DashboardPage() {
         <ActionItem href="/handovers" value={importantHandovers} unit="件" label="重要 申し送り" tone={importantHandovers > 0 ? "err" : "neutral"} />
       </section>
 
+      {/* 月末締めの進捗（利用者が登録されている場合のみ） */}
+      {users.length > 0 && <MonthCloseProgress ym={ymToday} users={users} counts={counts} confirmations={confirmations} billingUnconfirmed={billingUnconfirmed} />}
+
       <section className="grid grid-cols-12 gap-5">
         <div className="col-span-12 lg:col-span-7">
           <SectionHead title="本日の食事発注ステータス" right={<Link href={`/meals/${today}`} className="text-[12px] text-brand-700 hover:underline">日別詳細 →</Link>} />
@@ -512,6 +515,106 @@ function Stat({ label, value, unit, tone, href }: { label: string; value: string
 
 function Sep() {
   return <span className="text-ink-300">・</span>;
+}
+
+function MonthCloseProgress({
+  ym, users, counts, confirmations, billingUnconfirmed,
+}: {
+  ym: string;
+  users: User[];
+  counts: ReturnType<typeof buildMonthMealCounts>;
+  confirmations: Record<string, { breakfast?: boolean; lunch?: boolean; dinner?: boolean }>;
+  billingUnconfirmed: number;
+}) {
+  // 食事発注：当月の確定済日数（朝・昼・夕すべて確定された日）
+  const todayStr = todayIso();
+  const passedDays = counts.filter((c) => c.date <= todayStr);
+  const fullyConfirmed = passedDays.filter((c) => c.confirmed.breakfast && c.confirmed.lunch && c.confirmed.dinner).length;
+  const mealProgress = passedDays.length > 0 ? Math.round((fullyConfirmed / passedDays.length) * 100) : 0;
+
+  const billingTotal = users.length;
+  const billingConfirmed = billingTotal - billingUnconfirmed;
+  const billingProgress = billingTotal > 0 ? Math.round((billingConfirmed / billingTotal) * 100) : 0;
+
+  return (
+    <section>
+      <div className="flex items-end justify-between mb-2">
+        <h2 className="text-[13px] font-semibold text-ink-700">月末締めの進捗（{ym} 月）</h2>
+        <Link href="/billing" className="text-[12px] text-brand-700 hover:underline">月次請求へ →</Link>
+      </div>
+      <div className="card divide-x divide-ink-100 flex">
+        <StepCell
+          n={1}
+          label="食事発注 確定"
+          status={mealProgress === 100 ? "done" : mealProgress > 0 ? "progress" : "todo"}
+          sub={`${fullyConfirmed} / ${passedDays.length} 日`}
+          progress={mealProgress}
+          href="/meals"
+        />
+        <StepCell
+          n={2}
+          label="光熱費 入力"
+          status="progress"
+          sub="月の検針期間を登録"
+          href="/utilities"
+        />
+        <StepCell
+          n={3}
+          label="日用品 記録"
+          status="progress"
+          sub="使用品の登録・在庫補充"
+          href="/goods"
+        />
+        <StepCell
+          n={4}
+          label="請求確定"
+          status={billingUnconfirmed === 0 ? "done" : billingConfirmed > 0 ? "progress" : "todo"}
+          sub={`${billingConfirmed} / ${billingTotal} 名`}
+          progress={billingProgress}
+          href="/billing"
+        />
+        <StepCell
+          n={5}
+          label="請求書発行"
+          status={billingUnconfirmed === 0 && billingTotal > 0 ? "done" : "todo"}
+          sub={`${billingTotal} 名分を一括印刷`}
+          href="/billing"
+        />
+      </div>
+    </section>
+  );
+}
+
+function StepCell({
+  n, label, status, sub, progress, href,
+}: {
+  n: number;
+  label: string;
+  status: "done" | "progress" | "todo";
+  sub: string;
+  progress?: number;
+  href: string;
+}) {
+  const cls = {
+    done: { bg: "bg-ok-50/40", icon: "bg-ok-600 text-white", text: "text-ok-700", label: "完了" },
+    progress: { bg: "bg-warn-50/40", icon: "bg-warn-600 text-white", text: "text-warn-700", label: "進行中" },
+    todo: { bg: "", icon: "bg-ink-200 text-ink-700", text: "text-ink-500", label: "未着手" },
+  }[status];
+  return (
+    <Link href={href} className={`flex-1 px-5 py-3 hover:bg-ink-50/60 transition-colors ${cls.bg}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${cls.icon}`}>{n}</span>
+        <span className="text-[12px] text-ink-700 font-semibold">{label}</span>
+      </div>
+      <div className={`text-[11px] ${cls.text} font-semibold`}>{cls.label}</div>
+      <div className="text-[11px] text-ink-500 mt-0.5">{sub}</div>
+      {progress !== undefined && (
+        <div className="mt-1.5 h-1 bg-ink-100 rounded overflow-hidden">
+          <div className={`h-full ${status === "done" ? "bg-ok-600" : "bg-warn-600"}`} style={{ width: `${progress}%` }} />
+        </div>
+      )}
+    </Link>
+  );
 }
 
 function SetupGuide() {

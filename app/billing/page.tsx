@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { jpy, computeUserBilling, utilityBillsToLineItems, generateMealLineItems, type BillingBreakdown, type User } from "@/lib/data";
 import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices, useSingleCancellations, useFacilities, logActivity, todayIso, filterByFacility } from "@/lib/store";
-import { InvoicePreview } from "@/components/invoice-preview";
+import { InvoicePreview, InvoiceBulkPrint, type InvoicePayload } from "@/components/invoice-preview";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -26,6 +26,10 @@ export default function BillingPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [invoiceFor, setInvoiceFor] = useState<User | null>(null);
   const [detailFor, setDetailFor] = useState<User | null>(null);
+  const [bulkPrintOpen, setBulkPrintOpen] = useState(false);
+  const [bulkPrintInvoices, setBulkPrintInvoices] = useState<InvoicePayload[]>([]);
+  const [bulkSelectOpen, setBulkSelectOpen] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
 
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
@@ -68,6 +72,39 @@ export default function BillingPage() {
     setBulkOpen(false);
   }
 
+  function openBulkPrintSelector() {
+    // デフォルトで全員選択
+    setBulkSelectedIds(new Set(users.map((u) => u.id)));
+    setBulkSelectOpen(true);
+  }
+
+  function doBulkPrint() {
+    const selected = users.filter((u) => bulkSelectedIds.has(u.id));
+    if (selected.length === 0) { toast("印刷する利用者を選択してください", "warn"); return; }
+    const payloads: InvoicePayload[] = selected.map((u) => ({
+      user: u,
+      facility: facilities.find((f) => f.id === u.facilityId),
+      ym,
+      billing: userBillings[u.id],
+    }));
+    setBulkPrintInvoices(payloads);
+    setBulkSelectOpen(false);
+    setBulkPrintOpen(true);
+    logActivity(`${ym} の請求書を ${selected.length} 名分プレビュー（一括印刷）`);
+  }
+
+  function toggleSelect(id: string) {
+    setBulkSelectedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    if (bulkSelectedIds.size === users.length) setBulkSelectedIds(new Set());
+    else setBulkSelectedIds(new Set(users.map((u) => u.id)));
+  }
+
   return (
     <div className="space-y-4">
       <header className="flex items-end justify-between">
@@ -80,7 +117,7 @@ export default function BillingPage() {
         </div>
         <div className="flex gap-2 no-print">
           <button onClick={exportCsv} className="btn" disabled={users.length === 0}>CSV出力</button>
-          <button onClick={doPrint} className="btn">印刷</button>
+          <button onClick={openBulkPrintSelector} className="btn" disabled={users.length === 0}>請求書 一括印刷</button>
           <button onClick={() => setBulkOpen(true)} className="btn btn-primary" disabled={users.length === 0}>一括確定</button>
         </div>
       </header>
@@ -249,6 +286,68 @@ export default function BillingPage() {
           );
         })()}
       </Modal>
+
+      {/* 一括印刷：選択モーダル */}
+      <Modal
+        open={bulkSelectOpen}
+        onClose={() => setBulkSelectOpen(false)}
+        title="請求書 一括印刷"
+        size="lg"
+        footer={
+          <ModalFooter
+            onCancel={() => setBulkSelectOpen(false)}
+            onConfirm={doBulkPrint}
+            cancelLabel="閉じる"
+            confirmLabel={`${bulkSelectedIds.size} 名分のプレビューへ`}
+            extra={<button onClick={toggleAll} className="btn btn-sm">{bulkSelectedIds.size === users.length ? "全解除" : "全選択"}</button>}
+          />
+        }
+      >
+        <div className="text-[12px] text-ink-600 mb-3">
+          {ym} 分の請求書を作成する利用者を選択してください。プレビュー画面で「一括印刷」を押すと、各利用者の請求書が 1 ページずつ印刷されます。
+        </div>
+        <div className="card overflow-hidden max-h-[50vh] overflow-y-auto">
+          <table className="w-full text-[12px]">
+            <thead className="bg-ink-50 sticky top-0 border-b border-ink-200 text-ink-600">
+              <tr className="text-left">
+                <th className="px-2 py-1.5 w-10 text-center">
+                  <input type="checkbox" checked={bulkSelectedIds.size === users.length && users.length > 0} onChange={toggleAll} />
+                </th>
+                <th className="px-2 py-1.5 w-14">部屋</th>
+                <th className="px-2 py-1.5">氏名</th>
+                <th className="px-2 py-1.5 text-right w-24">合計</th>
+                <th className="px-2 py-1.5 text-right w-16">明細数</th>
+                <th className="px-2 py-1.5 text-center w-20">状態</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => {
+                const checked = bulkSelectedIds.has(u.id);
+                const ub = userBillings[u.id];
+                return (
+                  <tr key={u.id} className={"border-b border-ink-100 cursor-pointer hover:bg-ink-50/60 " + (checked ? "bg-brand-50/30" : "")} onClick={() => toggleSelect(u.id)}>
+                    <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={checked} onChange={() => toggleSelect(u.id)} onClick={(e) => e.stopPropagation()} /></td>
+                    <td className="px-2 py-1.5 num">{u.room}</td>
+                    <td className="px-2 py-1.5">{u.name}</td>
+                    <td className="px-2 py-1.5 text-right num font-semibold">{jpy(ub?.total ?? 0)}</td>
+                    <td className="px-2 py-1.5 text-right num text-ink-500">{ub?.items.length ?? 0}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      <Pill tone={isConfirmed(u.id) ? "ok" : "warn"}>{isConfirmed(u.id) ? "確定済" : "未確定"}</Pill>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      {/* 一括印刷：プレビュー（複数請求書） */}
+      <InvoiceBulkPrint
+        open={bulkPrintOpen}
+        onClose={() => setBulkPrintOpen(false)}
+        invoices={bulkPrintInvoices}
+      />
 
       {/* 請求書プレビュー */}
       <InvoicePreview
