@@ -1,6 +1,8 @@
 "use client";
-import { type User, computeUserBilling } from "@/lib/data";
+import { type User, computeUserBilling, groupBillingByMajor, type MajorCategory } from "@/lib/data";
 import { type Facility } from "@/lib/store";
+
+const MAJOR_ORDER: MajorCategory[] = ["住居費等", "介護サービス利用料", "日常サービス利用料", "立替金", "その他"];
 
 /* =====================================================================
    InvoiceContent — 請求書本体（印刷対象）。modal の中・bulk 印刷の中
@@ -19,13 +21,6 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
   const [y, m] = ym.split("-").map(Number);
   const due = new Date(y, m, dueDay); // 翌月の dueDay
   const dueLabel = `${due.getFullYear()}年${due.getMonth() + 1}月${due.getDate()}日（${"日月火水木金土"[due.getDay()]}）`;
-
-  // 明細を日付順にソート
-  const sortedItems = [...billing.items].sort((a, b) => {
-    const da = a.date ?? "9999-99-99";
-    const db = b.date ?? "9999-99-99";
-    return da.localeCompare(db);
-  });
 
   // 数量合計・税率別小計
   const qtyTotal = billing.items.reduce((s, i) => s + i.quantity, 0);
@@ -97,43 +92,80 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
         </div>
       )}
 
-      {/* 明細表 */}
-      <table className="w-full border border-ink-700 text-[11px] mt-3">
+      {/* ① 請求書本体（5大区分サマリ） */}
+      <table className="w-full border border-ink-700 text-[12px] mt-3">
         <thead>
           <tr className="bg-ink-50">
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold w-28">日　付</th>
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold">種別名</th>
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold w-14">数量</th>
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold w-14">税率</th>
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold w-20">単価</th>
-            <th className="border border-ink-700 px-2 py-1.5 font-semibold w-24">金額</th>
+            <th className="border border-ink-700 px-3 py-1.5 font-semibold text-left">請求区分</th>
+            <th className="border border-ink-700 px-3 py-1.5 font-semibold text-right w-32">金額（税込）</th>
           </tr>
         </thead>
         <tbody>
-          {sortedItems.length === 0 && (
-            <tr>
-              <td colSpan={6} className="border border-ink-700 px-2 py-6 text-center text-ink-400">明細がありません</td>
-            </tr>
-          )}
-          {sortedItems.map((it) => (
-            <tr key={it.id}>
-              <td className="border border-ink-700 px-2 py-1 num">{it.date ?? `${ym}-—`}</td>
-              <td className="border border-ink-700 px-2 py-1">
-                {it.category} {it.name}
-              </td>
-              <td className="border border-ink-700 px-2 py-1 text-right num">{it.quantity}</td>
-              <td className="border border-ink-700 px-2 py-1 text-right num">{it.taxRate ? `${Math.round(it.taxRate * 100)}%` : "—"}</td>
-              <td className="border border-ink-700 px-2 py-1 text-right num">{it.unitPrice.toLocaleString()}</td>
-              <td className="border border-ink-700 px-2 py-1 text-right num">{it.amount.toLocaleString()}</td>
-            </tr>
-          ))}
+          {MAJOR_ORDER.map((mc) => {
+            const items = groupBillingByMajor(billing.items)[mc];
+            const total = items.reduce((s, i) => s + i.amount, 0);
+            return (
+              <tr key={mc}>
+                <td className="border border-ink-700 px-3 py-1.5">{mc}<span className="text-[10px] text-ink-500 ml-2">{items.length} 項目</span></td>
+                <td className="border border-ink-700 px-3 py-1.5 text-right num">{total === 0 ? "—" : total.toLocaleString()}</td>
+              </tr>
+            );
+          })}
+          <tr className="bg-brand-50 font-bold">
+            <td className="border border-ink-700 px-3 py-2 text-[13px]">請　求　合　計</td>
+            <td className="border border-ink-700 px-3 py-2 text-right num text-[14px] text-brand-700">{billing.total.toLocaleString()}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ② 明細表（5大区分ごとにグループ表示） */}
+      <div className="mt-4 text-[11px] text-ink-600 font-semibold">▼ 明細</div>
+      {MAJOR_ORDER.map((mc) => {
+        const items = groupBillingByMajor(billing.items)[mc];
+        if (items.length === 0) return null;
+        const sectionTotal = items.reduce((s, i) => s + i.amount, 0);
+        const sortedSection = [...items].sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"));
+        return (
+          <table key={mc} className="w-full border border-ink-700 text-[11px] mt-2">
+            <thead>
+              <tr className="bg-ink-50">
+                <th className="border border-ink-700 px-2 py-1 font-semibold text-left" colSpan={6}>【{mc}】</th>
+              </tr>
+              <tr className="bg-ink-50">
+                <th className="border border-ink-700 px-2 py-1 font-semibold w-28">日　付</th>
+                <th className="border border-ink-700 px-2 py-1 font-semibold">種別名</th>
+                <th className="border border-ink-700 px-2 py-1 font-semibold w-12">数量</th>
+                <th className="border border-ink-700 px-2 py-1 font-semibold w-12">税率</th>
+                <th className="border border-ink-700 px-2 py-1 font-semibold w-20">単価</th>
+                <th className="border border-ink-700 px-2 py-1 font-semibold w-24">金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedSection.map((it) => (
+                <tr key={it.id}>
+                  <td className="border border-ink-700 px-2 py-1 num">{it.date ?? "—"}</td>
+                  <td className="border border-ink-700 px-2 py-1">{it.category === mc.replace("利用料", "").replace("等", "") ? it.name : `${it.category} ${it.name}`}</td>
+                  <td className="border border-ink-700 px-2 py-1 text-right num">{it.quantity}</td>
+                  <td className="border border-ink-700 px-2 py-1 text-right num">{it.taxRate ? `${Math.round(it.taxRate * 100)}%` : "—"}</td>
+                  <td className="border border-ink-700 px-2 py-1 text-right num">{it.unitPrice.toLocaleString()}</td>
+                  <td className="border border-ink-700 px-2 py-1 text-right num">{it.amount.toLocaleString()}</td>
+                </tr>
+              ))}
+              <tr className="bg-ink-50 font-semibold">
+                <td className="border border-ink-700 px-2 py-1" colSpan={5}>{mc} 計</td>
+                <td className="border border-ink-700 px-2 py-1 text-right num">{sectionTotal.toLocaleString()}</td>
+              </tr>
+            </tbody>
+          </table>
+        );
+      })}
+
+      <table className="w-full border border-ink-700 text-[11px] mt-2">
+        <tbody>
           <tr className="bg-ink-50 font-semibold">
-            <td className="border border-ink-700 px-2 py-1.5"></td>
-            <td className="border border-ink-700 px-2 py-1.5">【{user.name} 様　計】</td>
-            <td className="border border-ink-700 px-2 py-1.5 text-right num">{qtyTotal}</td>
-            <td className="border border-ink-700 px-2 py-1.5"></td>
-            <td className="border border-ink-700 px-2 py-1.5"></td>
-            <td className="border border-ink-700 px-2 py-1.5 text-right num text-[13px]">{billing.total.toLocaleString()}</td>
+            <td className="border border-ink-700 px-2 py-1.5">【{user.name} 様　全合計】</td>
+            <td className="border border-ink-700 px-2 py-1.5 text-right num">数量計 {qtyTotal}</td>
+            <td className="border border-ink-700 px-2 py-1.5 text-right num text-[13px] w-24">{billing.total.toLocaleString()}</td>
           </tr>
         </tbody>
       </table>

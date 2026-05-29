@@ -1,11 +1,18 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate, computeUserBilling, utilityBillsToLineItems, generateMealLineItems } from "@/lib/data";
+import { useState, useEffect } from "react";
+import {
+  jpy, type User, type RegularService, type BillingLineItem, type BillingCategory, type TaxRate,
+  type BillingProfile, type DailyServiceKey, type MajorCategory,
+  computeUserBilling, utilityBillsToLineItems, generateMealLineItems,
+  generateProfileLineItems, groupBillingByMajor, emptyBillingProfile,
+  HOUSING_PRESET, DAILY_SERVICE_PRESETS, REIMBURSEMENT_KINDS, REIMBURSEMENT_FEE, CARE_LIMIT_UNITS,
+} from "@/lib/data";
 import {
   useTasks, useHandovers, useRegularServices, useBillingLineItems, useUtilityBills,
   useFacilities, useCurrentFacilityId, useMealPrices, useSingleCancellations,
+  useBillingProfiles,
   logActivity, genId, todayIso, nowIso,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
@@ -48,14 +55,30 @@ export function UserDetail({
   const [mealPrices] = useMealPrices();
   const [singleCancellations] = useSingleCancellations();
   const [facilities] = useFacilities();
+  const [profiles, setProfiles] = useBillingProfiles();
+  const profile = profiles.find((p) => p.userId === user.id) ?? emptyBillingProfile(user.id, user.facilityId);
   const [billingYm, setBillingYm] = useState(todayIso().slice(0, 7));
-  // 光熱費・食事明細を自動生成して billing 計算に含める
+
+  // プロファイル自動生成（住居費・日常サービス）＋ 光熱費 ＋ 食事を含めて計算
+  const profileItems = generateProfileLineItems(profile, user, billingYm);
   const utilityItems = utilityBillsToLineItems(utilityBills, user.room, billingYm, user.facilityId)
     .map((it) => ({ ...it, userId: user.id }));
   const mealItems = generateMealLineItems(user, billingYm, mealPrices, singleCancellations);
-  const userBilling = computeUserBilling(user.id, billingYm, services, [...lineItems, ...utilityItems, ...mealItems]);
+  const userBilling = computeUserBilling(user.id, billingYm, services, [...lineItems, ...profileItems, ...utilityItems, ...mealItems]);
   const facility = facilities.find((f) => f.id === user.facilityId) ?? facilities[0];
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  function saveProfile(p: BillingProfile) {
+    setProfiles((cur) => {
+      const idx = cur.findIndex((x) => x.userId === user.id);
+      if (idx >= 0) return cur.map((x) => x.userId === user.id ? p : x);
+      return [...cur, p];
+    });
+    logActivity(`${user.name} 様 の請求設定を更新`);
+    toast("請求設定を保存しました", "ok");
+    setProfileOpen(false);
+  }
 
   type Dialog = "status" | "meal" | "allergy" | "task" | "handover" | "billing" | "delete" | null;
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -265,9 +288,11 @@ export function UserDetail({
       {tab === "billing" && (
         <BillingTab
           user={user}
+          profile={profile}
           ym={billingYm}
           setYm={setBillingYm}
           billing={userBilling}
+          onOpenProfile={() => setProfileOpen(true)}
           services={services.filter((s) => s.userId === user.id)}
           lineItems={lineItems.filter((i) => i.userId === user.id && i.ym === billingYm)}
           onAddService={(svc) => {
@@ -472,7 +497,193 @@ export function UserDetail({
         ym={billingYm}
         billing={userBilling}
       />
+
+      {/* 請求設定ドロワー */}
+      <BillingProfileDrawer
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        userName={user.name}
+        profile={profile}
+        onSave={saveProfile}
+      />
     </div>
+  );
+}
+
+function BillingProfileDrawer({
+  open, onClose, userName, profile, onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  userName: string;
+  profile: BillingProfile;
+  onSave: (p: BillingProfile) => void;
+}) {
+  const [draft, setDraft] = useState<BillingProfile>(profile);
+  // open または profile の参照が変わったら同期
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) setDraft(profile); }, [open]);
+
+  function setHousing(patch: Partial<BillingProfile["housing"]>) {
+    setDraft({ ...draft, housing: { ...draft.housing, ...patch } });
+  }
+  function setCustomAmount(key: keyof typeof HOUSING_PRESET, v: number | undefined) {
+    const next = { ...(draft.housing.customAmounts ?? {}) };
+    if (v === undefined || isNaN(v)) delete next[key as never];
+    else (next as Record<string, number>)[key] = v;
+    setHousing({ customAmounts: Object.keys(next).length > 0 ? next : undefined });
+  }
+  function toggleDaily(k: DailyServiceKey) {
+    setDraft({ ...draft, dailyServices: { ...draft.dailyServices, [k]: !draft.dailyServices[k] } });
+  }
+  function toggleAllDaily(on: boolean) {
+    const next: Record<DailyServiceKey, boolean> = { ...draft.dailyServices };
+    DAILY_SERVICE_PRESETS.forEach((p) => { next[p.key] = on; });
+    setDraft({ ...draft, dailyServices: next });
+  }
+
+  const amts = {
+    rent: draft.housing.customAmounts?.rent ?? HOUSING_PRESET.rent,
+    admin: draft.housing.customAmounts?.admin ?? HOUSING_PRESET.admin,
+    common: draft.housing.customAmounts?.common ?? HOUSING_PRESET.common,
+    water: draft.housing.customAmounts?.water ?? HOUSING_PRESET.water,
+    utility: draft.housing.customAmounts?.utility ?? HOUSING_PRESET.utility,
+  };
+  const housingTotal = amts.rent + amts.admin + amts.common + amts.water + amts.utility;
+  const dailyTotal = DAILY_SERVICE_PRESETS.filter((p) => draft.dailyServices[p.key]).reduce((s, p) => s + p.amount, 0);
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={`請求設定：${userName} 様`}
+      footer={<ModalFooter onCancel={onClose} onConfirm={() => onSave(draft)} confirmLabel="保存" />}
+    >
+      <div className="space-y-5">
+        {/* 住居費等 */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[13px] font-semibold text-ink-800">① 住居費等</h3>
+            <label className="flex items-center gap-2 text-[12px]">
+              <input type="checkbox" checked={draft.housing.enabled} onChange={(e) => setHousing({ enabled: e.target.checked })} />
+              この利用者に住居費等を適用
+            </label>
+          </div>
+          {draft.housing.enabled && (
+            <div className="card p-3">
+              <div className="text-[11px] text-ink-500 mb-2">
+                標準月額 ¥{HOUSING_PRESET.total.toLocaleString()}（家賃 ¥40,000・管理費 ¥5,000・共益費 ¥5,000・水道 ¥2,000・定額光熱費 ¥10,000）。<br />
+                部屋条件で差がある場合のみ個別金額を上書きしてください。入居月は自動日割／退去月・入院外泊中は満額です。
+              </div>
+              <div className="grid grid-cols-5 gap-2 text-[11px]">
+                {[
+                  ["rent", "家賃", HOUSING_PRESET.rent],
+                  ["admin", "管理費", HOUSING_PRESET.admin],
+                  ["common", "共益費", HOUSING_PRESET.common],
+                  ["water", "水道料金", HOUSING_PRESET.water],
+                  ["utility", "定額光熱費", HOUSING_PRESET.utility],
+                ].map(([k, label, def]) => (
+                  <div key={k as string}>
+                    <div className="text-ink-500 mb-0.5">{label}</div>
+                    <Input
+                      type="number"
+                      value={amts[k as keyof typeof amts]}
+                      onChange={(e) => setCustomAmount(k as keyof typeof HOUSING_PRESET, Number(e.target.value))}
+                      className="num text-[12px]"
+                    />
+                    <div className="text-[10px] text-ink-400 mt-0.5">標準 ¥{(def as number).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-right text-[12px] text-ink-700">
+                月額合計：<b className="num text-brand-700">¥{housingTotal.toLocaleString()}</b>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 介護サービス利用料 */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[13px] font-semibold text-ink-800">② 介護サービス利用料（負担割合）</h3>
+          </div>
+          <div className="card p-3 grid grid-cols-2 gap-3">
+            <Field label="本人負担割合">
+              <Select value={String(draft.burdenRate ?? 1)} onChange={(e) => setDraft({ ...draft, burdenRate: Number(e.target.value) as 1 | 2 | 3 })}>
+                <option value="1">1割</option>
+                <option value="2">2割</option>
+                <option value="3">3割</option>
+              </Select>
+            </Field>
+            <div className="text-[11px] text-ink-500 self-end">
+              実際の利用料は「明細を追加」で介護区分に登録してください。<br />
+              区分支給限度を超えた分は全額自己負担となる場合があります。
+            </div>
+          </div>
+        </section>
+
+        {/* 日常サービス利用料 ON/OFF */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[13px] font-semibold text-ink-800">③ 日常サービス利用料：ON/OFF</h3>
+            <div className="flex gap-1">
+              <button onClick={() => toggleAllDaily(true)} className="btn btn-sm">全ON</button>
+              <button onClick={() => toggleAllDaily(false)} className="btn btn-sm">全OFF</button>
+            </div>
+          </div>
+          <div className="card divide-y divide-ink-100">
+            {DAILY_SERVICE_PRESETS.map((p) => {
+              const on = draft.dailyServices[p.key];
+              return (
+                <label key={p.key} className="flex items-start gap-3 px-3 py-2.5 hover:bg-ink-50/60 cursor-pointer">
+                  <input type="checkbox" checked={on} onChange={() => toggleDaily(p.key)} className="mt-1" />
+                  <div className="flex-1">
+                    <div className="text-[13px] font-medium text-ink-900">{p.name} <span className="num text-ink-600 ml-1">¥{p.amount.toLocaleString()} / 月</span></div>
+                    <div className="text-[11px] text-ink-500 mt-0.5">{p.desc}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-2 text-right text-[12px] text-ink-700">
+            日常サービス月額合計：<b className="num text-brand-700">¥{dailyTotal.toLocaleString()}</b>
+            <span className="text-[11px] text-ink-500 ml-2">（全項目ONで ¥12,500）</span>
+          </div>
+        </section>
+
+        {/* 家族説明メモ */}
+        <section>
+          <Field label="家族説明メモ" hint="家族・キーパーソンへの説明用メモ（請求書には印字されません）">
+            <textarea
+              rows={3}
+              value={draft.familyMemo ?? ""}
+              onChange={(e) => setDraft({ ...draft, familyMemo: e.target.value })}
+              className="w-full px-3 py-2 border border-ink-200 rounded text-[13px]"
+              placeholder="例：洗濯はご家族対応のため OFF。配茶は本人準備可能なため OFF。"
+            />
+          </Field>
+        </section>
+
+        {/* 契約確認 */}
+        <section>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              checked={!!draft.contractConfirmed}
+              onChange={(e) => setDraft({
+                ...draft,
+                contractConfirmed: e.target.checked,
+                contractConfirmedAt: e.target.checked ? nowIso() : undefined,
+              })}
+            />
+            契約時にこの請求設定について本人・キーパーソンと確認済み
+          </label>
+          {draft.contractConfirmedAt && (
+            <div className="text-[11px] text-ink-500 mt-1 ml-6 num">確認日時：{draft.contractConfirmedAt}</div>
+          )}
+        </section>
+      </div>
+    </Drawer>
   );
 }
 
@@ -555,15 +766,18 @@ const BILLING_CATEGORIES: BillingCategory[] = [
 ];
 
 function BillingTab({
-  user, ym, setYm, billing, services, lineItems,
+  user, profile, ym, setYm, billing, onOpenProfile,
+  services, lineItems,
   onAddService, onUpdateService, onRemoveService,
   onAddItem, onUpdateItem, onRemoveItem,
   onExportCsv, onShowInvoice, onConfirm,
 }: {
   user: User;
+  profile: BillingProfile;
   ym: string;
   setYm: (ym: string) => void;
   billing: ReturnType<typeof computeUserBilling>;
+  onOpenProfile: () => void;
   services: RegularService[];
   lineItems: BillingLineItem[];
   onAddService: (s: RegularService) => void;
@@ -623,26 +837,99 @@ function BillingTab({
         id: genId("BL"), userId: user.id, facilityId: user.facilityId, ym,
         ...itemDraft, amount,
       });
+      // 立替金で「臨時」フラグなら立替事務費（1件 100円）を自動追加
+      if (itemDraft.category === "立替" && (itemDraft as { _irregular?: boolean })._irregular) {
+        onAddItem({
+          id: genId("BL"), userId: user.id, facilityId: user.facilityId, ym,
+          category: "立替", name: `立替事務費（${itemDraft.name}）`,
+          date: itemDraft.date, quantity: 1, unitPrice: REIMBURSEMENT_FEE, amount: REIMBURSEMENT_FEE,
+          taxRate: 0.1, source: "manual",
+        });
+        toast(`立替事務費 ¥${REIMBURSEMENT_FEE} を自動追加しました`, "info");
+      }
     } else if (itemOpen) {
       onUpdateItem({ ...itemOpen, ...itemDraft, amount });
     }
     setItemOpen(null);
   }
 
+  // 5大区分でグルーピング
+  const grouped = groupBillingByMajor(billing.items);
+  const majorTotals: Record<MajorCategory, number> = {
+    "住居費等": grouped["住居費等"].reduce((s, i) => s + i.amount, 0),
+    "介護サービス利用料": grouped["介護サービス利用料"].reduce((s, i) => s + i.amount, 0),
+    "日常サービス利用料": grouped["日常サービス利用料"].reduce((s, i) => s + i.amount, 0),
+    "立替金": grouped["立替金"].reduce((s, i) => s + i.amount, 0),
+    "その他": grouped["その他"].reduce((s, i) => s + i.amount, 0),
+  };
+  const enabledDailyCount = Object.values(profile.dailyServices).filter(Boolean).length;
+  const careLimit = CARE_LIMIT_UNITS[user.careLevel];
+
   return (
     <section className="space-y-5">
-      {/* 月切替 */}
+      {/* 月切替 + 設定 */}
       <div className="flex items-end justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <h2 className="text-[14px] font-semibold text-ink-800">対象月</h2>
           <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="px-2 py-1 border border-ink-200 rounded text-[13px] num" />
+          {profile.contractConfirmed && (
+            <span className="text-[11px] px-2 py-0.5 rounded bg-ok-50 text-ok-700 border border-ok-600/30">✓ 契約確認済</span>
+          )}
         </div>
         <div className="flex gap-2">
+          <button onClick={onOpenProfile} className="btn btn-sm">請求設定</button>
           <button onClick={onShowInvoice} className="btn btn-sm">請求書プレビュー</button>
           <button onClick={onExportCsv} className="btn btn-sm">CSV</button>
           <button onClick={onConfirm} className="btn btn-sm btn-primary">請求確定</button>
         </div>
       </div>
+
+      {/* 5大区分サマリ */}
+      <div className="card divide-x divide-ink-100 flex">
+        <MajorTile label="① 住居費等" v={majorTotals["住居費等"]} sub={profile.housing.enabled ? "適用中" : "適用なし"} />
+        <MajorTile label="② 介護サービス利用料" v={majorTotals["介護サービス利用料"]} sub={`${user.careLevel}・${profile.burdenRate ?? 1}割`} />
+        <MajorTile label="③ 日常サービス利用料" v={majorTotals["日常サービス利用料"]} sub={`${enabledDailyCount}/7 項目`} />
+        <MajorTile label="④ 立替金" v={majorTotals["立替金"]} sub={`${grouped["立替金"].length} 件`} />
+        <MajorTile label="⑤ その他" v={majorTotals["その他"]} sub={`${grouped["その他"].length} 件`} />
+        <div className="flex-1 px-5 py-3 bg-brand-50/60">
+          <div className="text-[11px] text-ink-500">請求合計</div>
+          <div className="num font-bold text-[22px] text-brand-700 mt-1">{jpy(billing.total)}</div>
+        </div>
+      </div>
+
+      {/* 日常サービス ON/OFF クイック表示 */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[13px] font-semibold text-ink-700">日常サービス利用料：ON/OFF</h3>
+          <button onClick={onOpenProfile} className="btn btn-sm">編集</button>
+        </div>
+        <div className="card p-3 flex flex-wrap gap-2 text-[12px]">
+          {DAILY_SERVICE_PRESETS.map((ds) => {
+            const on = profile.dailyServices[ds.key];
+            return (
+              <span
+                key={ds.key}
+                className={"px-3 py-1.5 rounded border " + (on ? "bg-ok-50 text-ok-700 border-ok-600/30 font-semibold" : "bg-ink-50 text-ink-400 border-ink-200 line-through")}
+                title={ds.desc}
+              >
+                {on ? "✓" : "—"} {ds.name} <span className="num">¥{ds.amount.toLocaleString()}</span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 介護サービス区分支給限度参照 */}
+      {careLimit && (
+        <div className="card p-3 text-[12px] bg-info-50/30 border-l-[3px] border-info-600">
+          <div className="font-semibold text-ink-800 mb-1">📋 介護サービス区分支給限度（参考）</div>
+          <p className="text-ink-700">
+            {user.careLevel}：<b className="num">{careLimit.toLocaleString()} 単位</b>
+            {profile.burdenRate ?? 1}割負担の概算：<b className="num">約 {Math.round(careLimit * (profile.burdenRate ?? 1) / 10).toLocaleString()} 円</b>
+            <span className="text-ink-500 ml-2">※ 1単位＝10円の概算、地域単価・加減算・実利用回数により実額は変動</span>
+          </p>
+        </div>
+      )}
 
       {/* 定期サービス */}
       <div>
@@ -842,8 +1129,43 @@ function BillingTab({
         <div className="mt-3 text-right text-[13px] text-ink-700">
           金額：<b className="num text-brand-700">{jpy(itemDraft.quantity * itemDraft.unitPrice)}</b>
         </div>
+
+        {/* 立替金の場合：定期 / 臨時 選択（臨時なら事務費 100円 自動追加） */}
+        {itemDraft.category === "立替" && itemOpen === "new" && (
+          <div className="mt-3 bg-info-50/40 border-l-[3px] border-info-600 rounded-r px-3 py-2 text-[12px]">
+            <div className="font-semibold mb-1">立替の種別</div>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="reimb-kind"
+                defaultChecked={!(itemDraft as { _irregular?: boolean })._irregular}
+                onChange={() => setItemDraft({ ...itemDraft, _irregular: false } as never)}
+              />
+              定期立替（配食・薬局・往診・デイサービス・訪問歯科 等） — 立替事務費なし
+            </label>
+            <label className="flex items-center gap-2 mt-1">
+              <input
+                type="radio"
+                name="reimb-kind"
+                defaultChecked={!!(itemDraft as { _irregular?: boolean })._irregular}
+                onChange={() => setItemDraft({ ...itemDraft, _irregular: true } as never)}
+              />
+              臨時・個別依頼（日用品・交通費・行政手数料 等） — 立替事務費 ¥{REIMBURSEMENT_FEE} を自動追加
+            </label>
+          </div>
+        )}
       </Modal>
     </section>
+  );
+}
+
+function MajorTile({ label, v, sub }: { label: string; v: number; sub?: string }) {
+  return (
+    <div className="flex-1 px-4 py-3">
+      <div className="text-[11px] text-ink-500">{label}</div>
+      <div className={"num font-bold text-[17px] mt-1 " + (v === 0 ? "text-ink-400" : "text-ink-900")}>{jpy(v)}</div>
+      {sub && <div className="text-[10px] text-ink-500 mt-0.5">{sub}</div>}
+    </div>
   );
 }
 

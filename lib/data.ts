@@ -76,6 +76,244 @@ export type BillingCategory =
   | "家賃" | "共益費" | "水道光熱費" | "管理費" | "生活支援費"
   | "食費" | "日用品" | "介護" | "看護" | "立替" | "保険外サービス" | "その他";
 
+/** 請求書の5大区分（表紙の構成） */
+export type MajorCategory = "住居費等" | "介護サービス利用料" | "日常サービス利用料" | "立替金" | "その他";
+
+/** BillingCategory → 5大区分マッピング */
+export function toMajorCategory(c: BillingCategory): MajorCategory {
+  switch (c) {
+    case "家賃": case "共益費": case "水道光熱費": case "管理費": case "生活支援費":
+      return "住居費等";
+    case "介護": case "看護":
+      return "介護サービス利用料";
+    case "食費": case "日用品": case "保険外サービス":
+      return "日常サービス利用料";
+    case "立替":
+      return "立替金";
+    case "その他":
+    default:
+      return "その他";
+  }
+}
+
+/** 住居費等プリセット（全室一律 月額 62,000円） */
+export const HOUSING_PRESET = {
+  total: 62000,
+  rent: 40000,
+  admin: 5000,
+  common: 5000,
+  water: 2000,
+  utility: 10000,
+} as const;
+
+/** 日常サービス（月額）プリセット */
+export const DAILY_SERVICE_PRESETS = [
+  { key: "meal", name: "食事サポート費", amount: 4000, desc: "外部業者の配膳・下膳・温め・食事準備・容器回収" },
+  { key: "tea", name: "配茶サポート費", amount: 1000, desc: "飲料準備・配茶・飲料補充・容器回収" },
+  { key: "laundry", name: "洗濯・乾燥サポート費", amount: 2000, desc: "週1回程度の洗濯物確認・洗濯・乾燥・回収・簡易収納" },
+  { key: "cleaning", name: "居室清掃サポート費", amount: 2000, desc: "週1回程度の簡易清掃・拭き掃除・整理" },
+  { key: "sheet", name: "シーツ交換サポート費", amount: 1000, desc: "週1回程度のシーツ交換" },
+  { key: "misc", name: "その他日常サポート費", amount: 1000, desc: "物品受渡し・連絡調整・受付取次ぎ・軽微な依頼対応" },
+  { key: "outing", name: "定期外出サポート費", amount: 1500, desc: "週1回目安の買い物・散歩・気分転換等の外出支援（実施回数保証なし）" },
+] as const;
+
+export type DailyServiceKey = typeof DAILY_SERVICE_PRESETS[number]["key"];
+
+/** 追加対応プリセット */
+export const ADDITIONAL_SERVICE_PRESETS = [
+  { key: "add_laundry", name: "追加洗濯・乾燥", unitPrice: 300, unit: "回" },
+  { key: "add_cleaning", name: "追加居室清掃", unitPrice: 300, unit: "回" },
+  { key: "add_sheet", name: "追加シーツ交換", unitPrice: 300, unit: "回" },
+] as const;
+
+/** 都度請求プリセット */
+export const ON_DEMAND_PRESETS = [
+  { key: "shopping_near", name: "買い物代行費（近隣）", unitPrice: 1000, unit: "回" },
+  { key: "shopping_far", name: "遠方買い物代行費", unitPrice: 2000, unit: "回" },
+  { key: "shopping_urgent", name: "緊急買い物代行費", unitPrice: 2000, unit: "回" },
+  { key: "doc_support", name: "書類確認・連絡調整サポート費", unitPrice: 1500, unit: "30分" },
+  { key: "doc_create", name: "報告書・書類作成サポート費", unitPrice: 1500, unit: "30分" },
+  { key: "outing_attend", name: "外出付き添い費", unitPrice: 1500, unit: "30分" },
+  { key: "hospital_attend", name: "病院付き添い費", unitPrice: 1500, unit: "30分" },
+  { key: "admin_attend", name: "行政手続きサポート費", unitPrice: 1500, unit: "30分" },
+  { key: "vehicle_near", name: "車両使用料（近隣）", unitPrice: 1000, unit: "回" },
+  { key: "vehicle_far", name: "遠方車両使用料", unitPrice: 2000, unit: "回" },
+  { key: "luggage", name: "荷物整理・搬出入サポート費", unitPrice: 1500, unit: "30分" },
+  { key: "furniture", name: "家具移動費", unitPrice: 1500, unit: "30分" },
+  { key: "special_clean", name: "特別清掃費", unitPrice: 1500, unit: "30分" },
+  { key: "vendor_attend", name: "業者立会い費", unitPrice: 1500, unit: "30分" },
+  { key: "emergency", name: "緊急対応費", unitPrice: 2000, unit: "回" },
+  { key: "key_open", name: "鍵開け対応費", unitPrice: 1000, unit: "回" },
+  { key: "key_manage", name: "鍵管理・受け渡し対応費", unitPrice: 1000, unit: "回" },
+] as const;
+
+/** 立替金プリセット（区分） */
+export const REIMBURSEMENT_KINDS = [
+  { key: "meal_delivery", name: "配食サービス利用料立替金", regular: true },
+  { key: "pharmacy", name: "薬局費立替金", regular: true },
+  { key: "house_call", name: "往診費立替金", regular: true },
+  { key: "day_service", name: "デイサービス費立替金", regular: true },
+  { key: "dental", name: "訪問歯科費立替金", regular: true },
+  { key: "daily_goods", name: "日用品購入立替金", regular: false },
+  { key: "diaper", name: "おむつ・パッド等衛生用品立替金", regular: false },
+  { key: "barber", name: "理美容費立替金", regular: false },
+  { key: "care_goods", name: "福祉用具・介護用品立替金", regular: false },
+  { key: "transport", name: "交通費立替金", regular: false },
+  { key: "admin_fee", name: "行政手数料立替金", regular: false },
+  { key: "post_copy", name: "郵送・コピー等実費", regular: false },
+  { key: "telecom", name: "通信費等立替金", regular: false },
+  { key: "other_reimb", name: "その他立替金", regular: false },
+] as const;
+
+/** 立替事務費（臨時 1件 100円） */
+export const REIMBURSEMENT_FEE = 100;
+
+/** 介護保険：区分支給限度基準額（1単位=10円換算の概算） */
+export const CARE_LIMIT_UNITS: Record<string, number> = {
+  "要支援1": 5032,
+  "要支援2": 10531,
+  "要介護1": 16765,
+  "要介護2": 19705,
+  "要介護3": 27048,
+  "要介護4": 30938,
+  "要介護5": 36217,
+};
+
+/** 利用者ごとの請求プロファイル */
+export type BillingProfile = {
+  userId: string;
+  facilityId?: string;
+  // 住居費等
+  housing: {
+    enabled: boolean;
+    customAmounts?: Partial<{ rent: number; admin: number; common: number; water: number; utility: number }>;
+  };
+  // 日常サービス ON/OFF
+  dailyServices: Record<DailyServiceKey, boolean>;
+  // 自己負担割合
+  burdenRate?: 1 | 2 | 3;
+  // 家族説明メモ
+  familyMemo?: string;
+  // 契約時確認済みフラグ
+  contractConfirmed?: boolean;
+  contractConfirmedAt?: string;
+};
+
+export function emptyBillingProfile(userId: string, facilityId?: string): BillingProfile {
+  return {
+    userId, facilityId,
+    housing: { enabled: true },
+    dailyServices: { meal: false, tea: false, laundry: false, cleaning: false, sheet: false, misc: false, outing: false },
+    burdenRate: 1,
+  };
+}
+
+/** 月の日数 */
+export function daysInMonth(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+/**
+ * 住居費の日割り計算
+ * - 入居月：入居日から月末まで日割
+ * - 退去月：満額（仕様通り）
+ * - 入院・外泊中も満額（自動停止しない）
+ */
+export function prorateHousing(
+  monthAmount: number,
+  ym: string,
+  moveInDate?: string,
+): { amount: number; isFirstMonth: boolean; billDays: number; totalDays: number } {
+  const days = daysInMonth(ym);
+  if (!moveInDate || moveInDate.slice(0, 7) !== ym) {
+    return { amount: monthAmount, isFirstMonth: false, billDays: days, totalDays: days };
+  }
+  const moveInDay = Number(moveInDate.slice(8, 10));
+  const billDays = days - moveInDay + 1;
+  const amount = Math.round((monthAmount / days) * billDays);
+  return { amount, isFirstMonth: true, billDays, totalDays: days };
+}
+
+/**
+ * プロファイルから月次の自動明細を生成
+ * - 住居費等：5項目を BillingLineItem として
+ * - 日常サービス利用料：ON のものだけを月額計上
+ */
+export function generateProfileLineItems(
+  profile: BillingProfile,
+  user: User,
+  ym: string,
+): BillingLineItem[] {
+  const items: BillingLineItem[] = [];
+
+  // 住居費等
+  if (profile.housing.enabled) {
+    const amts = {
+      rent: profile.housing.customAmounts?.rent ?? HOUSING_PRESET.rent,
+      admin: profile.housing.customAmounts?.admin ?? HOUSING_PRESET.admin,
+      common: profile.housing.customAmounts?.common ?? HOUSING_PRESET.common,
+      water: profile.housing.customAmounts?.water ?? HOUSING_PRESET.water,
+      utility: profile.housing.customAmounts?.utility ?? HOUSING_PRESET.utility,
+    };
+    const defs: Array<[BillingCategory, string, number]> = [
+      ["家賃", "家賃", amts.rent],
+      ["管理費", "管理費", amts.admin],
+      ["共益費", "共益費", amts.common],
+      ["水道光熱費", "水道料金", amts.water],
+      ["水道光熱費", "定額光熱費", amts.utility],
+    ];
+    defs.forEach(([cat, name, amount]) => {
+      const p = prorateHousing(amount, ym, user.moveInDate);
+      items.push({
+        id: `HOUSING-${profile.userId}-${ym}-${name}`,
+        userId: profile.userId,
+        facilityId: profile.facilityId,
+        ym,
+        category: cat,
+        name: p.isFirstMonth ? `${name}（入居月 日割 ${p.billDays}/${p.totalDays}日）` : name,
+        quantity: 1,
+        unitPrice: p.amount,
+        amount: p.amount,
+        taxRate: 0,
+        source: "regular",
+      });
+    });
+  }
+
+  // 日常サービス利用料（ON のもののみ）
+  DAILY_SERVICE_PRESETS.forEach((preset) => {
+    if (profile.dailyServices[preset.key]) {
+      items.push({
+        id: `DS-${profile.userId}-${ym}-${preset.key}`,
+        userId: profile.userId,
+        facilityId: profile.facilityId,
+        ym,
+        category: "保険外サービス",
+        name: preset.name,
+        quantity: 1,
+        unitPrice: preset.amount,
+        amount: preset.amount,
+        taxRate: 0.1,
+        source: "regular",
+      });
+    }
+  });
+
+  return items;
+}
+
+/** 5大区分ごとに集約 */
+export function groupBillingByMajor(items: BillingLineItem[]): Record<MajorCategory, BillingLineItem[]> {
+  const result: Record<MajorCategory, BillingLineItem[]> = {
+    "住居費等": [], "介護サービス利用料": [], "日常サービス利用料": [], "立替金": [], "その他": [],
+  };
+  items.forEach((it) => {
+    result[toMajorCategory(it.category)].push(it);
+  });
+  return result;
+}
+
 /** 税率：0=非課税、0.08=軽減税率（飲食料品）、0.1=標準 */
 export type TaxRate = 0 | 0.08 | 0.1;
 
