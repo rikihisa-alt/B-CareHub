@@ -22,6 +22,12 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
   const due = new Date(y, m, dueDay); // 翌月の dueDay
   const dueLabel = `${due.getFullYear()}年${due.getMonth() + 1}月${due.getDate()}日（${"日月火水木金土"[due.getDay()]}）`;
 
+  // 発行日（今日）
+  const now = new Date();
+  const issueLabel = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+  // 請求書番号：年月-利用者ID 末尾4桁
+  const invoiceNo = `${ym}-${user.id.slice(-4).toUpperCase()}`;
+
   // 数量合計・税率別小計
   const qtyTotal = billing.items.reduce((s, i) => s + i.quantity, 0);
   const taxGroups: Record<string, number> = {};
@@ -32,7 +38,52 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
 
   return (
     <div className="invoice-paper bg-white p-8">
-      {/* ヘッダー：支払期日・支払方法 */}
+      {/* タイトル ＋ 発行日／請求書番号 */}
+      <div className="text-center mb-6">
+        <h1 className="text-[28px] font-bold tracking-[0.4em] text-ink-900 border-b-2 border-ink-900 inline-block pb-1 px-6">請　求　書</h1>
+      </div>
+      <div className="flex justify-between text-[11px] text-ink-700 mb-4">
+        <div></div>
+        <div className="text-right">
+          <div>発行日：<span className="num">{issueLabel}</span></div>
+          <div>請求書番号：<span className="num">{invoiceNo}</span></div>
+        </div>
+      </div>
+
+      {/* 宛名（顧客） ／ 発行元 */}
+      <div className="flex justify-between gap-6 mb-5">
+        <div className="flex-1">
+          <div className="text-[18px] font-semibold text-ink-900 border-b border-ink-900 pb-1 inline-block min-w-[260px]">
+            {user.name}　様
+          </div>
+          {user.room && <div className="text-[11px] text-ink-600 mt-1">部屋 <span className="num">{user.room}</span></div>}
+        </div>
+        <div className="text-[11px] text-ink-800 text-right min-w-[240px]">
+          {facility && (
+            <>
+              <div className="text-[13px] font-semibold text-ink-900">{facility.name}</div>
+              {facility.address && <div className="mt-0.5">{facility.address}</div>}
+              {facility.phone && <div className="num mt-0.5">TEL {facility.phone}</div>}
+            </>
+          )}
+          <div className="mt-2 inline-block border border-ink-700 rounded-full w-12 h-12 leading-[3rem] text-center text-ink-400 text-[10px]">印</div>
+        </div>
+      </div>
+
+      {/* 拝啓文 */}
+      <p className="text-[12px] text-ink-800 leading-relaxed mb-2">
+        　拝啓　平素より格別のお引き立てを賜り、誠にありがとうございます。<br />
+        　下記のとおり <b className="num">{ym.replace("-", "年")}月分</b> の費用をご請求申し上げます。<br />
+        　ご確認のうえ、お支払期日までにお振込みくださいますようお願い申し上げます。
+      </p>
+
+      {/* 合計金額（強調） */}
+      <div className="border-2 border-ink-900 my-3 px-4 py-2 flex items-baseline justify-between">
+        <span className="text-[14px] font-semibold">ご請求金額</span>
+        <span className="num text-[22px] font-bold">¥{billing.total.toLocaleString()}-</span>
+      </div>
+
+      {/* 支払期日・方法・振込先 */}
       <table className="w-full border border-ink-700 text-[12px]">
         <tbody>
           <tr>
@@ -54,34 +105,13 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
                       【{acc.bank}{acc.branch ? ` ${acc.branch}` : ""}】 {acc.type} {acc.number} {acc.holder}
                     </div>
                   ))}
+                  <div className="text-[10px] text-ink-500 mt-1">※ 振込手数料はお客様ご負担にてお願い申し上げます。</div>
                 </div>
               ) : (
                 <span className="text-ink-400">振込先未設定（マスタ・データ管理から設定してください）</span>
               )}
             </td>
           </tr>
-        </tbody>
-      </table>
-
-      {/* 顧客情報 */}
-      <table className="w-full border border-ink-700 text-[12px] mt-3">
-        <tbody>
-          <tr>
-            <td className="border border-ink-700 px-3 py-2 bg-ink-50 w-32 font-semibold">顧客氏名</td>
-            <td className="border border-ink-700 px-3 py-2 text-[14px] font-semibold">{user.name} 様</td>
-            <td className="border border-ink-700 px-3 py-2 bg-ink-50 w-32 font-semibold">対象年月</td>
-            <td className="border border-ink-700 px-3 py-2 num">{ym.replace("-", "年")}月分</td>
-          </tr>
-          {facility && (
-            <tr>
-              <td className="border border-ink-700 px-3 py-2 bg-ink-50 font-semibold">請求元</td>
-              <td className="border border-ink-700 px-3 py-2" colSpan={3}>
-                {facility.name}
-                {facility.address && <span className="ml-2 text-[11px] text-ink-600">{facility.address}</span>}
-                {facility.phone && <span className="ml-2 text-[11px] text-ink-600 num">TEL {facility.phone}</span>}
-              </td>
-            </tr>
-          )}
         </tbody>
       </table>
 
@@ -169,6 +199,30 @@ export function InvoiceContent({ user, facility, ym, billing }: InvoicePayload) 
           </tr>
         </tbody>
       </table>
+
+      {/* フッター：問い合わせ・敬具 */}
+      <div className="mt-6 text-[11px] text-ink-800 leading-relaxed">
+        <p>
+          　ご不明な点やご請求内容についてのお問い合わせは、下記までご連絡くださいますようお願い申し上げます。<br />
+          　今後とも変わらぬご愛顧を賜りますよう、よろしくお願い申し上げます。
+        </p>
+        <div className="mt-3 border-t border-ink-300 pt-2 grid grid-cols-2 gap-2">
+          <div>
+            <div className="text-[10px] text-ink-500 mb-0.5">お問い合わせ先</div>
+            {facility ? (
+              <>
+                <div className="font-semibold text-[12px]">{facility.name}</div>
+                {facility.address && <div className="text-[10px] text-ink-600">{facility.address}</div>}
+                {facility.phone && <div className="text-[10px] num">TEL {facility.phone}</div>}
+              </>
+            ) : (
+              <span className="text-ink-400">施設情報が未設定です</span>
+            )}
+          </div>
+          <div className="text-right text-[12px] font-semibold tracking-wider">敬　具</div>
+        </div>
+        <div className="text-center text-[10px] text-ink-400 mt-4">— 本紙は介護サービス利用料の自己負担分・住居費・日常生活支援費・実費立替分を含むご請求書です —</div>
+      </div>
 
       {/* 税率別内訳 */}
       {Object.keys(taxGroups).length > 0 && (
