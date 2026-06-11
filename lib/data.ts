@@ -247,6 +247,15 @@ export function generateProfileLineItems(
 ): BillingLineItem[] {
   const items: BillingLineItem[] = [];
 
+  // 退去済：退去月（statusFrom の月）までは満額、それ以降の月は請求しない
+  if (user.status === "退去済" && user.statusFrom && ym > user.statusFrom.slice(0, 7)) {
+    return items;
+  }
+  // 入居前の月は請求しない
+  if (user.moveInDate && ym < user.moveInDate.slice(0, 7)) {
+    return items;
+  }
+
   // 住居費等
   if (profile.housing.enabled) {
     const amts = {
@@ -662,6 +671,34 @@ export type Alert = {
 
 export type MealConfirmation = { breakfast?: boolean; lunch?: boolean; dinner?: boolean };
 export type SingleCancellation = { id: string; userId: string; date: string; mealType: "breakfast" | "lunch" | "dinner"; reason: string; billable: boolean };
+
+/**
+ * 施設別キー（`${facilityId}_${date}`）の食事確定データを date キーに変換する。
+ * - facilityId 指定時：その施設の確定状態のみを返す
+ * - null（全施設）時：登録のあるすべての施設で確定済みの場合のみ確定扱い（AND 集計）
+ */
+export function scopeMealConfirmations(
+  confirmations: Record<string, MealConfirmation>,
+  facilityId: string | null,
+): Record<string, MealConfirmation> {
+  const result: Record<string, MealConfirmation> = {};
+  if (facilityId === null) {
+    Object.entries(confirmations).forEach(([key, val]) => {
+      const date = key.includes("_") ? key.split("_")[1] : key;
+      const prev = result[date] ?? { breakfast: true, lunch: true, dinner: true };
+      result[date] = {
+        breakfast: !!prev.breakfast && !!val.breakfast,
+        lunch: !!prev.lunch && !!val.lunch,
+        dinner: !!prev.dinner && !!val.dinner,
+      };
+    });
+    return result;
+  }
+  Object.entries(confirmations).forEach(([key, val]) => {
+    if (key.startsWith(`${facilityId}_`)) result[key.split("_")[1]] = val;
+  });
+  return result;
+}
 
 export type Vendor = {
   id: string;

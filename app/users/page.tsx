@@ -1,8 +1,16 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { totalOf, jpy, emptyUserDraft, emptyBilling, type User } from "@/lib/data";
-import { useUsers, useFacilities, useCurrentFacilityId, logActivity, genId, filterByFacility } from "@/lib/store";
+import {
+  jpy, emptyUserDraft, emptyBilling, computeUserBilling,
+  generateProfileLineItems, generateMealLineItems, utilityBillsToLineItems, emptyBillingProfile,
+  type User,
+} from "@/lib/data";
+import {
+  useUsers, useFacilities, useCurrentFacilityId,
+  useRegularServices, useBillingLineItems, useBillingProfiles, useUtilityBills, useMealPrices, useSingleCancellations,
+  logActivity, genId, todayIso, filterByFacility,
+} from "@/lib/store";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -27,6 +35,26 @@ export default function UsersPage() {
   const [draft, setDraft] = useState<Omit<User, "id">>(emptyUserDraft(defaultFacilityId));
 
   const scopedUsers = useMemo(() => filterByFacility(users, currentFacilityId), [users, currentFacilityId]);
+
+  // 今月請求予定：利用者詳細・月次請求と同じ計算式で算出
+  const [services] = useRegularServices();
+  const [lineItems] = useBillingLineItems();
+  const [profiles] = useBillingProfiles();
+  const [utilityBills] = useUtilityBills();
+  const [mealPrices] = useMealPrices();
+  const [singleCancellations] = useSingleCancellations();
+  const ymNow = todayIso().slice(0, 7);
+  const monthlyTotals = useMemo(() => {
+    const map: Record<string, number> = {};
+    scopedUsers.forEach((u) => {
+      const profile = profiles.find((p) => p.userId === u.id) ?? emptyBillingProfile(u.id, u.facilityId);
+      const profileItems = generateProfileLineItems(profile, u, ymNow);
+      const utilItems = utilityBillsToLineItems(utilityBills, u.room, ymNow, u.facilityId).map((it) => ({ ...it, userId: u.id }));
+      const mealItems = generateMealLineItems(u, ymNow, mealPrices, singleCancellations);
+      map[u.id] = computeUserBilling(u.id, ymNow, services, [...lineItems, ...profileItems, ...utilItems, ...mealItems]).total;
+    });
+    return map;
+  }, [scopedUsers, profiles, services, lineItems, utilityBills, mealPrices, singleCancellations, ymNow]);
 
   const list = useMemo(() => scopedUsers.filter((u) => {
     if (filter === "active" && u.status !== "入居中") return false;
@@ -145,7 +173,7 @@ export default function UsersPage() {
   function exportCsv() {
     downloadCsv(`利用者一覧_${new Date().toISOString().slice(0, 10)}.csv`, [
       ["部屋", "氏名", "フリガナ", "ステータス", "介護度", "今月請求予定"],
-      ...list.map((u) => [u.room, u.name, u.kana, u.status, u.careLevel, totalOf(u)]),
+      ...list.map((u) => [u.room, u.name, u.kana, u.status, u.careLevel, monthlyTotals[u.id] ?? 0]),
     ]);
   }
 
@@ -248,7 +276,7 @@ export default function UsersPage() {
                 <td className="px-3 py-3"><StatusBadge s={u.status} /></td>
                 <td className="px-3 py-3 text-ink-700">{u.careLevel}</td>
                 <td className="px-3 py-3 text-center"><MealIcons u={u} /></td>
-                <td className="px-3 py-3 text-right num font-semibold text-ink-900">{jpy(totalOf(u))}</td>
+                <td className="px-3 py-3 text-right num font-semibold text-ink-900">{jpy(monthlyTotals[u.id] ?? 0)}</td>
                 <td className="px-3 py-3 text-center">{u.unpaidDocs > 0 ? <Pill tone="warn">{u.unpaidDocs}</Pill> : <span className="text-ink-300">—</span>}</td>
                 <td className="px-3 py-3 text-center">{u.openTasks > 0 ? <Pill tone="warn">{u.openTasks}</Pill> : <span className="text-ink-300">—</span>}</td>
                 <td className="px-3 py-3 text-center">

@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { jpy, computeUserBilling, utilityBillsToLineItems, generateMealLineItems, type BillingBreakdown, type User } from "@/lib/data";
-import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices, useSingleCancellations, useFacilities, logActivity, todayIso, filterByFacility } from "@/lib/store";
+import { jpy, computeUserBilling, utilityBillsToLineItems, generateMealLineItems, generateProfileLineItems, emptyBillingProfile, type User } from "@/lib/data";
+import { useUsers, useBillingConfirmations, useCurrentFacilityId, useRegularServices, useBillingLineItems, useBillingProfiles, useUtilityBills, useMealPrices, useSingleCancellations, useFacilities, logActivity, todayIso, filterByFacility } from "@/lib/store";
 import { InvoicePreview, InvoiceBulkPrint, type InvoicePayload } from "@/components/invoice-preview";
 import { FacilityLabel } from "@/components/facility-name";
 import { Modal } from "@/components/ui/modal";
@@ -20,6 +20,7 @@ export default function BillingPage() {
   const [confirmations, setConfirmations] = useBillingConfirmations();
   const [services] = useRegularServices();
   const [lineItems] = useBillingLineItems();
+  const [profiles] = useBillingProfiles();
   const [utilityBills] = useUtilityBills();
   const [mealPrices] = useMealPrices();
   const [singleCancellations] = useSingleCancellations();
@@ -34,16 +35,19 @@ export default function BillingPage() {
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
 
-  // 各利用者の breakdown を当月分で算出（光熱費・食事自動明細も加算）
+  // 各利用者の breakdown を当月分で算出
+  // 利用者詳細の請求タブと同じ式：住居費・日常サービス（プロファイル）＋ 定期 ＋ 手動明細 ＋ 光熱費 ＋ 食事自動
   const userBillings = useMemo(() => {
     const map: Record<string, ReturnType<typeof computeUserBilling>> = {};
     users.forEach((u) => {
+      const profile = profiles.find((p) => p.userId === u.id) ?? emptyBillingProfile(u.id, u.facilityId);
+      const profileItems = generateProfileLineItems(profile, u, ym);
       const utilItems = utilityBillsToLineItems(utilityBills, u.room, ym, u.facilityId).map((it) => ({ ...it, userId: u.id }));
       const mealItems = generateMealLineItems(u, ym, mealPrices, singleCancellations);
-      map[u.id] = computeUserBilling(u.id, ym, services, [...lineItems, ...utilItems, ...mealItems]);
+      map[u.id] = computeUserBilling(u.id, ym, services, [...lineItems, ...profileItems, ...utilItems, ...mealItems]);
     });
     return map;
-  }, [users, services, lineItems, utilityBills, mealPrices, singleCancellations, ym]);
+  }, [users, services, lineItems, profiles, utilityBills, mealPrices, singleCancellations, ym]);
 
   const sum = (k: BillingKey) => users.reduce((s, u) => s + (userBillings[u.id]?.breakdown[k] ?? 0), 0);
   const totalAll = users.reduce((s, u) => s + (userBillings[u.id]?.total ?? 0), 0);
@@ -83,7 +87,7 @@ export default function BillingPage() {
     if (selected.length === 0) { toast("印刷する利用者を選択してください", "warn"); return; }
     const payloads: InvoicePayload[] = selected.map((u) => ({
       user: u,
-      facility: facilities.find((f) => f.id === u.facilityId),
+      facility: facilities.find((f) => f.id === u.facilityId) ?? facilities[0],
       ym,
       billing: userBillings[u.id],
     }));
@@ -354,7 +358,7 @@ export default function BillingPage() {
         open={invoiceFor !== null}
         onClose={() => setInvoiceFor(null)}
         user={invoiceFor ?? ({ name: "" } as User)}
-        facility={invoiceFor ? facilities.find((f) => f.id === invoiceFor.facilityId) : undefined}
+        facility={invoiceFor ? (facilities.find((f) => f.id === invoiceFor.facilityId) ?? facilities[0]) : undefined}
         ym={ym}
         billing={invoiceFor ? userBillings[invoiceFor.id] : { items: [], breakdown: { rent:0,common:0,utility:0,admin:0,meal:0,goods:0,care:0,nursing:0,advance:0,other:0 }, total: 0 }}
       />

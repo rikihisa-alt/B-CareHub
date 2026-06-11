@@ -1,8 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useMemo } from "react";
-import { type Alert } from "@/lib/data";
-import { useUsers, useGoods, useDocuments, useMealConfirmations, todayIso } from "@/lib/store";
+import { type Alert, type MealConfirmation, computeUserBilling, generateMealLineItems, scopeMealConfirmations } from "@/lib/data";
+import {
+  useUsers, useGoods, useDocuments, useMealConfirmations, useCurrentFacilityId,
+  useRegularServices, useBillingLineItems, useMealPrices, useSingleCancellations,
+  todayIso, filterByFacility,
+} from "@/lib/store";
 import { Severity, FilterChip, Th } from "@/components/ui/primitives";
 import { toast } from "@/components/ui/toast";
 
@@ -11,23 +15,28 @@ function computeAlerts(
   users: ReturnType<typeof useUsers>[0],
   goods: ReturnType<typeof useGoods>[0],
   documents: ReturnType<typeof useDocuments>[0],
-  confirmations: ReturnType<typeof useMealConfirmations>[0],
+  todayConf: MealConfirmation,
+  mealTotals: Record<string, number>,
 ): Alert[] {
   const today = todayIso();
   const alerts: Alert[] = [];
 
-  // 発注未確定（本日分）
-  const c = confirmations[today] ?? {};
-  if (users.length > 0 && !c.lunch) {
-    alerts.push({
-      id: "AL-meal-lunch",
-      type: "発注未確定",
-      severity: "高",
-      detectedAt: today,
-      message: `本日 ${today} 昼食 が未確定`,
-      impact: "対象者の配膳に影響、業者締切までに確定が必要",
-      actionLabel: "確定する",
-      actionHref: `/meals/${today}`,
+  // 発注未確定（本日分・朝昼夕すべてチェック）
+  const hasMealUsers = users.some((u) => u.status === "入居中" && (u.meal.breakfastBread || u.meal.breakfastJuice || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし"));
+  if (hasMealUsers) {
+    ([["breakfast", "朝食"], ["lunch", "昼食"], ["dinner", "夕食"]] as const).forEach(([key, label]) => {
+      if (!todayConf[key]) {
+        alerts.push({
+          id: `AL-meal-${key}`,
+          type: "発注未確定",
+          severity: "高",
+          detectedAt: today,
+          message: `本日 ${today} ${label} が未確定`,
+          impact: "対象者の配膳に影響、業者締切までに確定が必要",
+          actionLabel: "確定する",
+          actionHref: `/meals/${today}`,
+        });
+      }
     });
   }
 
@@ -87,8 +96,8 @@ function computeAlerts(
     }
   });
 
-  // 請求漏れ疑い：食事が出ているのに食費 0
-  users.filter((u) => u.status === "入居中" && u.monthlyBilling.meal === 0 && (u.meal.breakfastBread || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし")).forEach((u) => {
+  // 請求漏れ疑い：食事が出ているのに食費 0（月次請求と同じ計算結果で判定）
+  users.filter((u) => u.status === "入居中" && (mealTotals[u.id] ?? 0) === 0 && (u.meal.breakfastBread || u.meal.lunchVendor !== "なし" || u.meal.dinnerVendor !== "なし")).forEach((u) => {
     alerts.push({
       id: `AL-bill-${u.id}`,
       type: "請求漏れ疑い",
@@ -123,12 +132,42 @@ function computeAlerts(
 }
 
 export default function AlertsPage() {
-  const [users] = useUsers();
-  const [goods] = useGoods();
-  const [documents] = useDocuments();
+  const [allUsers] = useUsers();
+  const [allGoods] = useGoods();
+  const [allDocuments] = useDocuments();
   const [confirmations] = useMealConfirmations();
+  const [currentFacilityId] = useCurrentFacilityId();
+  const [services] = useRegularServices();
+  const [lineItems] = useBillingLineItems();
+  const [mealPrices] = useMealPrices();
+  const [singleCancellations] = useSingleCancellations();
 
-  const alerts = useMemo(() => computeAlerts(users, goods, documents, confirmations), [users, goods, documents, confirmations]);
+  // 表示中の施設に絞る
+  const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
+  const goods = useMemo(() => filterByFacility(allGoods, currentFacilityId), [allGoods, currentFacilityId]);
+  const documents = useMemo(() => filterByFacility(allDocuments, currentFacilityId), [allDocuments, currentFacilityId]);
+
+  // 本日の食事確定状態（確定キーは施設別）
+  const todayConf = useMemo(
+    () => scopeMealConfirmations(confirmations, currentFacilityId)[todayIso()] ?? {},
+    [confirmations, currentFacilityId],
+  );
+
+  // 利用者ごとの当月食費（月次請求と同じ計算）
+  const mealTotals = useMemo(() => {
+    const ym = todayIso().slice(0, 7);
+    const map: Record<string, number> = {};
+    users.forEach((u) => {
+      const mealItems = generateMealLineItems(u, ym, mealPrices, singleCancellations);
+      map[u.id] = computeUserBilling(u.id, ym, services, [...lineItems, ...mealItems]).breakdown.meal;
+    });
+    return map;
+  }, [users, mealPrices, singleCancellations, services, lineItems]);
+
+  const alerts = useMemo(
+    () => computeAlerts(users, goods, documents, todayConf, mealTotals),
+    [users, goods, documents, todayConf, mealTotals],
+  );
 
   return (
     <div className="space-y-4">

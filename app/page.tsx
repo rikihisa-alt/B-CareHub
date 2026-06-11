@@ -4,13 +4,14 @@ import { useMemo, useState } from "react";
 import {
   jpy, buildMonthMealCounts, timeToDeadline, vendors,
   computeUserBilling, utilityBillsToLineItems, generateMealLineItems,
+  generateProfileLineItems, emptyBillingProfile, scopeMealConfirmations,
   type Task, type User,
 } from "@/lib/data";
 import {
   useUsers, useTasks, useHandovers, useActivities, useGoods, useDocuments,
   useMealConfirmations, useSingleCancellations, useFacilities, useCurrentFacilityId,
-  useRegularServices, useBillingLineItems, useUtilityBills, useMealPrices,
-  logActivity, genId, todayIso, filterByFacility,
+  useRegularServices, useBillingLineItems, useBillingProfiles, useUtilityBills, useMealPrices,
+  useBillingConfirmations, logActivity, genId, todayIso, filterByFacility,
 } from "@/lib/store";
 import { Modal, Drawer } from "@/components/ui/modal";
 import { toast } from "@/components/ui/toast";
@@ -31,8 +32,10 @@ export default function DashboardPage() {
   const [currentFacilityId] = useCurrentFacilityId();
   const [services] = useRegularServices();
   const [lineItems] = useBillingLineItems();
+  const [profiles] = useBillingProfiles();
   const [utilityBills] = useUtilityBills();
   const [mealPrices] = useMealPrices();
+  const [billingConfirmations] = useBillingConfirmations();
 
   // 施設フィルタ
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
@@ -44,29 +47,11 @@ export default function DashboardPage() {
   const today = todayIso();
   const [yYear, yMonth] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
 
-  // 施設フィルタを適用したキー変換
-  const scopedConfirmations = useMemo(() => {
-    if (currentFacilityId === null) {
-      const result: typeof confirmations = {};
-      Object.entries(confirmations).forEach(([key, val]) => {
-        const date = key.includes("_") ? key.split("_")[1] : key;
-        if (!result[date]) result[date] = { breakfast: true, lunch: true, dinner: true };
-        result[date] = {
-          breakfast: result[date].breakfast && !!val.breakfast,
-          lunch: result[date].lunch && !!val.lunch,
-          dinner: result[date].dinner && !!val.dinner,
-        };
-      });
-      return result;
-    }
-    const result: typeof confirmations = {};
-    Object.entries(confirmations).forEach(([key, val]) => {
-      if (key.startsWith(`${currentFacilityId}_`)) {
-        result[key.split("_")[1]] = val;
-      }
-    });
-    return result;
-  }, [confirmations, currentFacilityId]);
+  // 施設フィルタを適用したキー変換（共通ロジック）
+  const scopedConfirmations = useMemo(
+    () => scopeMealConfirmations(confirmations, currentFacilityId),
+    [confirmations, currentFacilityId],
+  );
 
   const counts = useMemo(
     () => buildMonthMealCounts(yYear, yMonth, users, singleCancellations, scopedConfirmations),
@@ -92,16 +77,23 @@ export default function DashboardPage() {
     : facilities.find((f) => f.id === currentFacilityId)?.name ?? "未選択";
 
   const ymToday = today.slice(0, 7);
+  // 利用者詳細・月次請求と同じ計算式（住居費・日常サービスのプロファイル自動明細を含む）
   const totalBilling = users.reduce((s, u) => {
+    const profile = profiles.find((p) => p.userId === u.id) ?? emptyBillingProfile(u.id, u.facilityId);
+    const profileItems = generateProfileLineItems(profile, u, ymToday);
     const utilItems = utilityBillsToLineItems(utilityBills, u.room, ymToday, u.facilityId).map((it) => ({ ...it, userId: u.id }));
     const mealItems = generateMealLineItems(u, ymToday, mealPrices, singleCancellations);
-    return s + computeUserBilling(u.id, ymToday, services, [...lineItems, ...utilItems, ...mealItems]).total;
+    return s + computeUserBilling(u.id, ymToday, services, [...lineItems, ...profileItems, ...utilItems, ...mealItems]).total;
   }, 0);
   const tasksUrgent = tasks.filter((t) => t.priority === "高" && t.status !== "完了").length;
   const importantHandovers = handovers.filter((h) => h.important).length;
   const lowStockCount = goods.filter((g) => g.stock < g.min).length;
-  const billingUnconfirmed = users.length;
-  const docsWarn = documents.filter((d) => d.status === "未回収" || d.status === "期限間近" || d.status === "期限切れ").length;
+  // 当月の請求未確定数（確定操作されたものを除く）
+  const billingUnconfirmed = users.filter((u) => !billingConfirmations[`${u.id}_${ymToday}`]).length;
+  const utilityYmCount = useMemo(
+    () => filterByFacility(utilityBills, currentFacilityId).filter((b) => b.ym === ymToday).length,
+    [utilityBills, currentFacilityId, ymToday],
+  );
 
   const [confirmFor, setConfirmFor] = useState<null | "breakfast" | "lunch" | "dinner">(null);
   const [statusUser, setStatusUser] = useState<User | null>(null);
@@ -183,7 +175,17 @@ export default function DashboardPage() {
       </section>
 
       {/* 月末締めの進捗（利用者が登録されている場合のみ） */}
-      {users.length > 0 && <MonthCloseProgress ym={ymToday} users={users} counts={counts} confirmations={confirmations} billingUnconfirmed={billingUnconfirmed} />}
+      {users.length > 0 && (
+        <MonthCloseProgress
+          ym={ymToday}
+          users={users}
+          counts={counts}
+          billingUnconfirmed={billingUnconfirmed}
+          utilityCount={utilityYmCount}
+          goodsCount={goods.length}
+          lowStockCount={lowStockCount}
+        />
+      )}
 
       <section className="grid grid-cols-12 gap-5">
         <div className="col-span-12 lg:col-span-7">
@@ -518,13 +520,15 @@ function Sep() {
 }
 
 function MonthCloseProgress({
-  ym, users, counts, confirmations, billingUnconfirmed,
+  ym, users, counts, billingUnconfirmed, utilityCount, goodsCount, lowStockCount,
 }: {
   ym: string;
   users: User[];
   counts: ReturnType<typeof buildMonthMealCounts>;
-  confirmations: Record<string, { breakfast?: boolean; lunch?: boolean; dinner?: boolean }>;
   billingUnconfirmed: number;
+  utilityCount: number;
+  goodsCount: number;
+  lowStockCount: number;
 }) {
   // 食事発注：当月の確定済日数（朝・昼・夕すべて確定された日）
   const todayStr = todayIso();
@@ -554,15 +558,15 @@ function MonthCloseProgress({
         <StepCell
           n={2}
           label="光熱費 入力"
-          status="progress"
-          sub="月の検針期間を登録"
+          status={utilityCount > 0 ? "done" : "todo"}
+          sub={utilityCount > 0 ? `${utilityCount} 件 登録済` : "当月分が未登録"}
           href="/utilities"
         />
         <StepCell
           n={3}
           label="日用品 記録"
-          status="progress"
-          sub="使用品の登録・在庫補充"
+          status={goodsCount === 0 ? "todo" : lowStockCount > 0 ? "progress" : "done"}
+          sub={goodsCount === 0 ? "品目が未登録" : lowStockCount > 0 ? `在庫不足 ${lowStockCount} 品目` : "在庫チェック済"}
           href="/goods"
         />
         <StepCell
@@ -619,7 +623,7 @@ function StepCell({
 
 function SetupGuide() {
   return (
-    <section className="card p-6 bg-gradient-to-br from-brand-50 to-info-50/40 border-brand-200">
+    <section className="card p-6 bg-brand-50/50 border-brand-200">
       <div className="flex items-start gap-4">
         <div className="w-12 h-12 rounded-full bg-brand-600 flex items-center justify-center text-white text-[22px] shrink-0">
           ★

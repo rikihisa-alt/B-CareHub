@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { buildMonthMealCounts, monthTotal, vendors, type DayMealCount } from "@/lib/data";
+import { buildMonthMealCounts, monthTotal, scopeMealConfirmations, vendors, type DayMealCount } from "@/lib/data";
 import { useUsers, useMealConfirmations, useSingleCancellations, useCurrentFacilityId, todayIso, filterByFacility } from "@/lib/store";
 import { downloadCsv, doPrint } from "@/components/ui/helpers";
 import { toast } from "@/components/ui/toast";
@@ -17,30 +17,11 @@ export default function MealsPage() {
   const [currentFacilityId] = useCurrentFacilityId();
   const users = useMemo(() => filterByFacility(allUsers, currentFacilityId), [allUsers, currentFacilityId]);
 
-  // 施設別の確定状態（key: ${facilityId}_${date}、 全施設の場合は date のみ）
-  const scopedConfirmations = useMemo(() => {
-    if (currentFacilityId === null) {
-      // 全施設：date 単位で「すべての施設で確定」を AND 集計
-      const result: typeof confirmations = {};
-      Object.entries(confirmations).forEach(([key, val]) => {
-        const date = key.includes("_") ? key.split("_")[1] : key;
-        if (!result[date]) result[date] = { breakfast: true, lunch: true, dinner: true };
-        result[date] = {
-          breakfast: result[date].breakfast && !!val.breakfast,
-          lunch: result[date].lunch && !!val.lunch,
-          dinner: result[date].dinner && !!val.dinner,
-        };
-      });
-      return result;
-    }
-    const result: typeof confirmations = {};
-    Object.entries(confirmations).forEach(([key, val]) => {
-      if (key.startsWith(`${currentFacilityId}_`)) {
-        result[key.split("_")[1]] = val;
-      }
-    });
-    return result;
-  }, [confirmations, currentFacilityId]);
+  // 施設別の確定状態（key: ${facilityId}_${date} → date キーへ変換。共通ロジック）
+  const scopedConfirmations = useMemo(
+    () => scopeMealConfirmations(confirmations, currentFacilityId),
+    [confirmations, currentFacilityId],
+  );
 
   const counts = useMemo(
     () => buildMonthMealCounts(year, month, users, singleCancellations, scopedConfirmations),
@@ -54,8 +35,6 @@ export default function MealsPage() {
     ...counts,
   ];
   while (grid.length % 7 !== 0) grid.push(null);
-  const weeks: (DayMealCount | null)[][] = [];
-  for (let i = 0; i < grid.length; i += 7) weeks.push(grid.slice(i, i + 7));
 
   function prev() { if (month === 1) { setYear(year - 1); setMonth(12); } else setMonth(month - 1); }
   function next() { if (month === 12) { setYear(year + 1); setMonth(1); } else setMonth(month + 1); }
@@ -120,7 +99,7 @@ export default function MealsPage() {
           ))}
         </div>
         <div className="grid grid-cols-7">
-          {weeks.flat().map((c, i) => <DayCell key={i} c={c} prev={i > 0 ? weeks.flat()[i - 1] : null} />)}
+          {grid.map((c, i) => <DayCell key={i} c={c} prev={i > 0 ? grid[i - 1] : null} />)}
         </div>
       </div>
 
